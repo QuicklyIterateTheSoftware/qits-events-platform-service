@@ -19,7 +19,16 @@
 deployment_target: platform
 
 routes: /events
-navigation: Events:6
+
+# WHERE THE EDGE APPEARS THIS APPLICATION IN THE SIDEBAR. One entry per slot: `platform` is the
+# project-scoped group, and this is the first row in it. The label and the position are the whole
+# statement — the host is derived from the application name (`qits-events` minus its `qits-` prefix
+# is `events`), so there is no `host:` line to keep in step with anything.
+#
+# This replaces `navigation: Events:6`, the flat list every application shared. The old key still
+# parses — a spec is read at the built sha, so it can never become unknown — and maps to
+# `system.Events`, which is the wrong group for a service whose pages are about one project.
+navigation-entries: platform.Events:1
 
 # THE STORE, DECLARED RATHER THAN CONFIGURED. This service's log is PostgreSQL, and the line below
 # is what provisions it: a role and a database of its own on the platform environment's postgres —

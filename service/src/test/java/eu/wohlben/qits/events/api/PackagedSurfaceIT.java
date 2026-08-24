@@ -29,22 +29,27 @@ import org.junit.jupiter.api.Test;
  *
  * <p>Every other test here is a {@code @QuarkusTest}: it augments and runs in the build JVM, with
  * the full classpath present, reflection unrestricted, its datasource keys handed to it by a config
- * source — and, crucially, <b>Quinoa disabled</b>. Quinoa is off by default in test mode, so no {@code @QuarkusTest} in this repo has
- * ever seen the client at all; a unit test asserting something about {@code /events/} would pass
- * against a process with no client in it. What the SPA is actually served as is proven here or
- * nowhere.
+ * source — and, crucially, <b>Quinoa disabled</b>. Quinoa is off by default in test mode, so no
+ * {@code @QuarkusTest} in this repo has ever seen the client at all; a unit test asserting something
+ * about the served client would pass against a process with no client in it. What the SPA is
+ * actually served as is proven here or nowhere.
  *
- * <p>The probe list is the platform's, from {@code docs/project-setup-quinoa-angular.md}:
+ * <p><b>The client is served at the root</b> since this service got a host of its own
+ * ({@code events.<env>.<domain>}). The segment survives only as the wire prefix, which is what the
+ * probe list below turns on:
  *
  * <ul>
- *   <li>{@code /events/} → 200 HTML carrying the right {@code <base href>} — the client's own
- *       spelling of the segment, set in another repository's {@code angular.json}, where no build
- *       here can check it. Wrong, and the page loads and then fetches its JavaScript from nowhere.
- *   <li>a deep link → 200 {@code index.html}, so the Angular router owns it across a reload
- *   <li>{@code /events/api/<real>} → the API's own answer; {@code /events/api/nope} → 404 and
- *       <b>never</b> {@code text/html}. A machine client parses {@code index.html} as data, so the
- *       content type is as much of the assertion as the status.
- *   <li>the readiness endpoint qits-cd's health gate curls, at the address the deployment assumes
+ *   <li>{@code /} → 200 HTML carrying {@code <base href="/">} — the client's own spelling, set in
+ *       another repository's {@code angular.json}, where no build here can check it. Wrong, and the
+ *       page loads and then fetches its JavaScript from nowhere.
+ *   <li>a deep link, scoped and unscoped → 200 {@code index.html}, so the Angular router owns it
+ *       across a reload
+ *   <li>{@code /events/} → 404: the whole segment is ignored by SPA routing now, so the old address
+ *       is not a second door into the client. The edge sends the bookmark on with a redirect.
+ *   <li>{@code /events/api/<real>} → the API's own answer; {@code /events/api/nope} → 404 and not
+ *       the client. A machine client parses {@code index.html} as data.
+ *   <li>the readiness endpoint the deployer's health gate curls, at the address the deployment
+ *       assumes
  *   <li>{@code /events/stream}: a plain GET → 404 and not the client, and the upgrade → a working
  *       socket. Two probes rather than one, because they fail for opposite reasons —
  *       websockets-next claims only the <em>handshake</em>, so the plain GET is the Quinoa question
@@ -60,6 +65,9 @@ import org.junit.jupiter.api.Test;
 @QuarkusIntegrationTest
 @TestProfile(PackagedSurfaceIT.PackagedUnderTarget.class)
 public class PackagedSurfaceIT {
+
+  /** What the client's index.html spells now that it is mounted at the root of its own host. */
+  private static final String BASE_HREF = "<base href=\"/\">";
 
   /**
    * Hands the launched artifact a database the way a deployment does — as the generic resource
@@ -109,51 +117,47 @@ public class PackagedSurfaceIT {
   URI stream;
 
   @Test
-  public void theClientIsServedAtTheSegmentWithItsOwnBaseHref() {
+  public void theClientIsServedAtTheRootWithItsOwnBaseHref() {
     String html =
-        given()
-            .when()
-            .get("/events/")
-            .then()
-            .statusCode(200)
-            .contentType(ContentType.HTML)
-            .extract()
+        given().when().get("/").then().statusCode(200).contentType(ContentType.HTML).extract()
             .asString();
     assertTrue(
-        html.contains("<base href=\"/events/\">"),
-        "the client's baseHref must be the segment it is mounted at; got: "
+        html.contains(BASE_HREF),
+        "the client's baseHref must be the root it is mounted at; got: "
             + html.substring(0, Math.min(400, html.length())));
   }
 
   @Test
   public void aDeepLinkFallsBackToTheClientSoItsRouterOwnsIt() {
     String deepLink =
+        given().when().get("/some/route").then().statusCode(200).contentType(ContentType.HTML)
+            .extract()
+            .asString();
+    assertTrue(
+        deepLink.contains(BASE_HREF),
+        "a deep link must answer with index.html, not with a differently-shaped page");
+
+    // The scoped form of the same page. `/qits/events/<id>` is one address the client routes and
+    // the server knows nothing about, and it has to survive a reload like any other.
+    String scoped =
         given()
             .when()
-            .get("/events/some/route")
+            .get("/qits/events/" + UUID.randomUUID())
             .then()
             .statusCode(200)
             .contentType(ContentType.HTML)
             .extract()
             .asString();
-    assertTrue(
-        deepLink.contains("<base href=\"/events/\">"),
-        "a deep link must answer with index.html, not with a differently-shaped page");
+    assertTrue(scoped.contains(BASE_HREF), "a project-scoped deep link must answer with index.html");
   }
 
   @Test
-  public void theBareSegmentRedirectsRatherThanFourOhFouring() {
-    // Quinoa mounts at /events/*, which does not match the bare segment (upstream #960) — the
-    // redirect in webui/WebUiRedirect is this service's answer, and it only exists in the packaged
-    // process alongside a real client.
-    given()
-        .redirects()
-        .follow(false)
-        .when()
-        .get("/events")
-        .then()
-        .statusCode(301)
-        .header("Location", "/events/");
+  public void theOldSegmentIsNoLongerADoorIntoTheClient() {
+    // The whole /events prefix is in quarkus.quinoa.ignored-path-prefixes, so nothing under it is
+    // rerouted to index.html. An old bookmark is the edge's problem, answered with a redirect
+    // there — here it is an honest 404.
+    String body = given().when().get("/events/").then().statusCode(404).extract().asString();
+    assertFalse(body.contains(BASE_HREF), "the old segment must not serve the client; got: " + body);
   }
 
   @Test
@@ -173,11 +177,13 @@ public class PackagedSurfaceIT {
     String body =
         given().when().get("/events/api/nope").then().statusCode(404).extract().asString();
     assertFalse(
-        body.contains("<base href=\"/events/\">"),
+        body.contains(BASE_HREF),
         "a mistyped machine path must not be answered with the client; got: " + body);
 
-    // qits-gateway routes verbatim by prefix, so there is no unprefixed form to fall back to.
-    given().when().get("/api/events").then().statusCode(404);
+    // The edge path-routes verbatim by prefix, so there is no unprefixed form to fall back to —
+    // and at the root an unprefixed /api/events is the CLIENT's ground, which is why the assertion
+    // is that it never answers as the API rather than that it 404s.
+    given().when().get("/api/events").then().statusCode(200).contentType(ContentType.HTML);
   }
 
   @Test
@@ -264,7 +270,7 @@ public class PackagedSurfaceIT {
   @Test
   public void theApiDocumentAndItsUiAreServedUnderTheSegment() {
     // Both live under quarkus.http.non-application-root-path, which sits OUTSIDE quarkus.rest.path
-    // and carries /events on its own; at / they would be unreachable through qits-gateway.
+    // and carries /events on its own; at / they would be the client's ground now.
     given().when().get("/events/q/openapi").then().statusCode(200);
     given().when().get("/events/q/swagger-ui/").then().statusCode(200);
   }
@@ -324,12 +330,11 @@ public class PackagedSurfaceIT {
     // text/html and correct, so the absence of the client is what is pinned.
     String body = given().when().get("/events/stream").then().statusCode(404).extract().asString();
     assertFalse(
-        body.contains("<base href=\"/events/\">"),
-        "the stream path must not be answered with the client; got: " + body);
+        body.contains(BASE_HREF), "the stream path must not be answered with the client; got: " + body);
 
     String mistyped =
         given().when().get("/events/stream/nope").then().statusCode(404).extract().asString();
-    assertFalse(mistyped.contains("<base href=\"/events/\">"));
+    assertFalse(mistyped.contains(BASE_HREF));
   }
 
   @Test
