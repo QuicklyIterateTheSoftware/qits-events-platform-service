@@ -44,3 +44,8 @@ navigation-entries: platform.Events:1
 # Provisioning is idempotent and the credential lives in the deployer's registry, so a redeploy
 # finds the existing row and injects the password this process is already connected with.
 resources: postgresql:db
+
+# Where the browsable API document lives: swagger-ui under this service's non-application
+# root, which sits under the primary route above. The shell's Api Docs viewer reads it off
+# /main-navigation and frames it for this repository.
+api-docs: /events/q/swagger-ui
