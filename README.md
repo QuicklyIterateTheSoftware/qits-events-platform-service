@@ -76,34 +76,33 @@ running the compile under docker. That fallback still works; it is just not the 
 it is worth recognising by name when a compile that normally takes about a minute starts downloading
 a container image.
 
-Everything it serves sits under its gateway segment, `/events`:
+This service has a **host of its own** — `events.<env>.<domain>` — and serves two planes on it:
 
 | | |
 |---|---|
-| `/events/` | the Angular SPA, built from `service/src/main/webui` by Quinoa and served by this process (`quarkus.quinoa.ui-root-path`); unmatched paths under it fall back to `index.html`, so the client's own router gets its deep links — except under the prefixes below |
-| `/events` | a 301 to `/events/`. Quinoa mounts at `/events/*`, which does not match the bare segment (upstream quinoa #960); `webui/WebUiRedirect` is this service's answer |
+| `/` | the Angular SPA, built from `service/src/main/webui` by Quinoa and served by this process (`quarkus.quinoa.ui-root-path=/`); unmatched paths fall back to `index.html`, so the client's own router gets its deep links — including the project-scoped ones, `/qits/events/<id>` — except under the prefix below |
 | `/events/api/events` | the REST surface (`quarkus.rest.path=/events/api`) |
 | `/events/stream` | the event stream socket — a `@WebSocket` literal, which follows `quarkus.rest.path` for nothing and carries the segment itself |
 | `/events/q/openapi`, `/events/q/swagger-ui` | the API document and its UI (`quarkus.http.non-application-root-path`) |
-| `/events/q/health/ready` | the readiness endpoint qits-cd's health gate curls |
+| `/events/q/health/ready` | the readiness endpoint the deployer's health gate curls |
 
-qits-gateway routes verbatim by prefix — `/events/*` → this service, no rewriting — so the segment
-is served here or the service is not reachable through it. There is no unprefixed form.
+The edge path-routes verbatim by prefix on **every** vhost — `/events/*` reaches this service from a
+sibling application's page too — so the segment is served here or the API is not reachable at all.
+There is no unprefixed form; `/events/` itself is a 404, and an old bookmark under it is redirected
+by the edge.
 
-The SPA takes the *whole* segment, so it is the one that can swallow the rest: the deep-link
-fallback answers anything under `/events` that matched no route, with `200 text/html`. That is right
-for a person and wrong for a machine, which parses `index.html` as garbage data. Quinoa **derives**
-the exclusion list from `quarkus.rest.path` and `quarkus.http.non-application-root-path` when the
-key is unset, and that derivation *was* exactly right until `/events/stream` existed — a `@WebSocket`
-literal follows neither key. The key had been spelled out before it was needed, which is why adding
-the socket meant adding a line beside it rather than finding out from a subscriber parsing HTML.
-Three traps travel with it: setting it **replaces** the derivation rather than extending it (so
-`/api` and `/q` are repeated by hand); the values are matched **after** `ui-root-path` is stripped,
-so they are relative — `/events/api` written there matches nothing at all and is indistinguishable
-from not setting the key; and websockets-next claims only the **upgrade handshake**, so a plain GET
-on the socket path reaches no socket route and falls through to the SPA unless the prefix is
-ignored. Ignoring it does not unregister the route — the upgrade still works, and
-`PackagedSurfaceIT` asserts both halves on the built artifact.
+The SPA takes everything else, so it is the one that can swallow the rest: the deep-link fallback
+answers any unmatched path with `200 text/html`. That is right for a person and wrong for a machine,
+which parses `index.html` as garbage data. Quinoa **derives** the exclusion list from
+`quarkus.rest.path` and `quarkus.http.non-application-root-path` when the key is unset, and that
+derivation was exactly right until `/events/stream` existed — a `@WebSocket` literal follows neither
+key. Setting the key **replaces** the derivation rather than extending it, which is why the one
+entry has to cover all three routes: the values are matched **after** `ui-root-path` is stripped and
+the ui-root is `/`, so `/events` is written absolutely and matches as a prefix. The remaining trap is
+websockets-next: it claims only the **upgrade handshake**, so a plain GET on the socket path reaches
+no socket route and falls through to the SPA unless the prefix is ignored. Ignoring it does not
+unregister the route — the upgrade still works, and `PackagedSurfaceIT` asserts both halves on the
+built artifact.
 
 ## The bus
 
@@ -262,9 +261,12 @@ than trusts. Both live under `/events/api`, so `quarkus.quinoa.ignored-path-pref
 [qits-spa-events](https://github.com/QuicklyIterateTheSoftware/qits-spa-events) — Angular 21,
 standalone components, no SSR — is a submodule at `service/src/main/webui`, which is Quinoa's
 default `web-ui-dir`, so the path is a convention rather than a setting. Its `angular.json` sets
-`baseHref` to `"/events/"`: the segment is spelled in **four** places that move together, and that
-one is in another repository where no build here can check it. A `baseHref` that disagrees yields a
-page that loads and then fetches its own JavaScript from the wrong place.
+`baseHref` to `"/"`, because the client owns the root of this host — so the client spells no segment
+at all, and there is nothing left for it to disagree with.
+
+The segment survives in **four** spellings, all of them in this repository and all checkable by a
+build here: `quarkus.quinoa.ignored-path-prefixes`, `quarkus.rest.path`,
+`quarkus.http.non-application-root-path`, and `routes:` in `.config/qits/deployments.yml`.
 
 That gives this repo a clone rule with two halves:
 
@@ -314,7 +316,7 @@ same refuse-to-boot stance the siblings take.
 
 ## Authentication
 
-There is none here, and that is the design. Authentication terminates at qits-gateway; this service
-reads the `X-Qits-User` header the gateway injects (`events/security/ForwardAuthMechanism`) and
+There is none here, and that is the design. Authentication terminates at the edge; this service
+reads the `X-Qits-User` header the edge injects (`events/security/ForwardAuthMechanism`) and
 authenticates nothing. A missing header is *anonymous*, and anonymous is not a denial — reaching
 this service at all already implies you are inside the trusted network. See `AGENTS.md`.
