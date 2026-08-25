@@ -13,7 +13,7 @@ of what is here; nothing below describes a plan.
 
 | | |
 |---|---|
-| `Event` | a name, an `occurredAt`, an optional `payload`, an optional description and an optional `parentId` — plus the row's own `createdAt`/`updatedAt` |
+| `Event` | a name, an `occurredAt`, an optional `payload`, an optional description, an optional `parentId` and an optional `environment` — plus the row's own `createdAt`/`updatedAt` |
 
 The three timestamps are not redundant. `occurredAt` is the **caller's** — when the thing happened,
 supplied on write and freely in the past, because a log is mostly written after the fact — while
@@ -27,6 +27,15 @@ causation edge, and the one relation this table has. It records what a timeline 
 train is an event firing a build, the build publishing an event, that event firing another build,
 and without the edge each hop is an unrelated row distinguishable from coincidence only by reading
 timestamps and guessing.
+
+`environment` is the tier the publisher ran in — `dev`, or `platform` for a service that serves
+every tier — or null for an event recorded before the platform knew tiers. Since the bus became one
+instance for the whole platform, this field is the only place a tier appears at all. Like
+`parentId` it is envelope rather than payload, it sits inside the replay comparison, and it names a
+row of another context's store (qits-deployments' environments) by value with no FK and no
+existence check: only its *shape* is validated (a dns-safe name), because an environment can be
+deleted after its events truthfully happened. `?environment=` on the list route filters by it,
+as an indexed equality on its own column.
 
 **A `parentId` this log cannot resolve is data, not an error, and there is no foreign key.** Nothing
 orders a parent's arrival before its child's — publishes are independent HTTP calls, and a parent
@@ -125,7 +134,8 @@ The envelope is one shape in both directions:
   "occurredAt": "2026-07-31T12:46:03Z",
   "payload": "{\"branch\":\"main\",\"repoId\":\"qits-ci\"}",
   "description": null,
-  "parentId": null }
+  "parentId": null,
+  "environment": "dev" }
 ```
 
 `payload` is the publishing event class's own fields as **canonical JSON in a string**. This service
@@ -134,14 +144,16 @@ the equality below is the only reason a retry is safe. `parentId` is envelope, n
 payload is compared byte for byte, so a cause that entered it would make one event published under
 two parents two events nothing could reconcile.
 
-**`parentId` may be absent, and absent means null.** That is the whole of this contract's backward
+**`parentId` and `environment` may be absent, and absent means null.** That is the whole of this
+contract's backward
 compatibility: a publisher that never learned about the field keeps working, which is why this
 service ships before any publisher that stamps. The reverse order is the unsafe one — a stamping
 publisher against a service without the column has its parents silently dropped, and chains recorded
 as roots cannot be backfilled.
 
 The publish has three answers and no fourth — `201` for an id this log has not seen, `200` for the
-same `name`/`occurredAt`/`payload`/`parentId` arriving again (nothing written, nothing pushed),
+same `name`/`occurredAt`/`payload`/`parentId`/`environment` arriving again (nothing written,
+nothing pushed),
 `400` for an id that exists with anything different, which is a reused UUID and not something a
 retry fixes. `description` is deliberately outside that comparison and `parentId` is deliberately
 inside it: the line is identity of the occurrence versus prose about it, and two PUTs of one id
@@ -153,7 +165,7 @@ since an event cannot cause itself. A `parentId` this log has never seen is **no
 
 A subscriber connects to `/events/stream` and sends one frame — `{"subscribe": ["BuildSuccessful"]}`,
 which *replaces* that connection's set; `["*"]` means everything — and is then pushed
-`{"id", "name", "occurredAt", "payload", "description", "parentId"}` for each newly created matching
+`{"id", "name", "occurredAt", "payload", "description", "parentId", "environment"}` for each newly created matching
 event. `name` doubles as the **signature** a subscriber matches on. The field *order* is not part of
 the contract — both sides bind by name — but appending is: a subscriber built against the first five
 fields reads the frame it always read. Live only, at-most-once: no replay, no offset, no catch-up.
@@ -246,6 +258,11 @@ string-valued keys of events published through `CanonicalJson`, and it is a scan
 index. Blank entries are dropped, the rule `?parentId=` already follows, and a value with no `=` is a
 `400` naming the parameter. No migration, no index, no new route — this is a query parameter on the
 route that already exists, the same as every filter above it.
+
+**`environment` is the one filter that is an indexed equality.** The tier is envelope data on its
+own column, so `?environment=dev` never touches the payload; a value that could never have been
+stored — not a dns-safe name — is a `400` naming the parameter, and blank is absent like everywhere
+else. Events from before the field carry null and match no filter value.
 
 **`?parentId=` takes none of these and is answered whole.** A parent's children are one per artifact
 a pipeline declares — bounded by a file in a repository rather than by history — so its `nextCursor`

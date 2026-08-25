@@ -371,28 +371,29 @@ public class PackagedSurfaceIT {
       assertNotNull(frame, "the packaged artifact's stream pushed nothing");
       assertTrue(frame.contains("\"name\":\"" + signature + "\""), frame);
       assertTrue(frame.contains("\"payload\":\"{\\\"probe\\\":true}\""), frame);
-      // The envelope above never mentions parentId — an older publisher's exact bytes — and the
-      // frame carries it as an explicit null all the same. Both halves of the compatibility clause
-      // in one assertion, on the artifact.
+      // The envelope above never mentions parentId or environment — an older publisher's exact
+      // bytes — and the frame carries both as explicit nulls all the same. Both halves of the
+      // compatibility clause in one assertion, on the artifact.
       assertTrue(frame.contains("\"parentId\":null"), frame);
+      assertTrue(frame.contains("\"environment\":null"), frame);
     }
   }
 
   @Test
   public void theIdempotentPublishAnswersTwoOhOneThenTwoHundredThenFourHundred() {
     // On the artifact rather than only in a @QuarkusTest, because this is also the only place the
-    // payload and parent_id columns are exercised against the provisioned database through Flyway's
-    // real migration resources — the shape a native image drops silently.
+    // payload, parent_id and environment columns are exercised against the provisioned database
+    // through Flyway's real migration resources — the shape a native image drops silently.
     //
-    // The envelope carries parentId here for exactly that reason: a migration that never ran, a
-    // column MapStruct maps by a name the native image dropped, or an omit-nulls mapper are all
-    // invisible to a @QuarkusTest and all fatal to the publisher that ships next.
+    // The envelope carries parentId and environment here for exactly that reason: a migration that
+    // never ran, a column MapStruct maps by a name the native image dropped, or an omit-nulls
+    // mapper are all invisible to a @QuarkusTest and all fatal to the publisher that ships next.
     String parent = UUID.randomUUID().toString();
     String id = UUID.randomUUID().toString();
     String envelope =
         "{\"name\":\"PackagedPublish\",\"occurredAt\":\"2026-07-31T12:46:03Z\","
             + "\"payload\":\"{\\\"repoId\\\":\\\"qits-events\\\"}\",\"description\":null,"
-            + "\"parentId\":\""
+            + "\"environment\":\"dev\",\"parentId\":\""
             + parent
             + "\"}";
 
@@ -404,7 +405,8 @@ public class PackagedSurfaceIT {
         .then()
         .statusCode(201)
         .body("event.payload", org.hamcrest.Matchers.equalTo("{\"repoId\":\"qits-events\"}"))
-        .body("event.parentId", org.hamcrest.Matchers.equalTo(parent));
+        .body("event.parentId", org.hamcrest.Matchers.equalTo(parent))
+        .body("event.environment", org.hamcrest.Matchers.equalTo("dev"));
 
     given()
         .contentType(ContentType.JSON)
@@ -424,6 +426,16 @@ public class PackagedSurfaceIT {
         .then()
         .statusCode(200)
         .body("events.id", org.hamcrest.Matchers.contains(id));
+
+    // ... and through ?environment=, the tier read model, against the real V2 column and its index.
+    given()
+        .queryParam("environment", "dev")
+        .queryParam("name", "PackagedPublish")
+        .when()
+        .get("/events/api/events")
+        .then()
+        .statusCode(200)
+        .body("events.id", org.hamcrest.Matchers.hasItem(id));
 
     given()
         .contentType(ContentType.JSON)
@@ -475,6 +487,9 @@ public class PackagedSurfaceIT {
         .then()
         .statusCode(200)
         .body("event", org.hamcrest.Matchers.hasKey("parentId"))
-        .body("event.parentId", org.hamcrest.Matchers.nullValue());
+        .body("event.parentId", org.hamcrest.Matchers.nullValue())
+        // The tier key is pinned the same way, for the same probing consumer.
+        .body("event", org.hamcrest.Matchers.hasKey("environment"))
+        .body("event.environment", org.hamcrest.Matchers.nullValue());
   }
 }

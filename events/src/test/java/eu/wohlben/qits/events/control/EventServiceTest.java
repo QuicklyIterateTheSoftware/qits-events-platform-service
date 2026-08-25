@@ -26,7 +26,7 @@ class EventServiceTest extends EventsTestSupport {
   void createReadDelete() {
     Instant when = Instant.parse("2026-07-31T09:00:00Z");
     Event event =
-        eventService.create("Deployed qits-events", when, "{\"version\":\"1\"}", "First boot", null);
+        eventService.create("Deployed qits-events", when, "{\"version\":\"1\"}", "First boot", null, null);
     assertNotNull(event.id);
     assertEquals(when, event.occurredAt);
     assertNotNull(event.createdAt);
@@ -45,14 +45,14 @@ class EventServiceTest extends EventsTestSupport {
   void aManuallyRecordedEventNeedsNoPayload() {
     // The POST path stays what it was: a name and a time are the whole of what an event must have,
     // and the bus's structured half is optional rather than a new obligation on a person.
-    Event event = eventService.create("By hand", Instant.parse("2026-07-31T09:00:00Z"), null, null, null);
+    Event event = eventService.create("By hand", Instant.parse("2026-07-31T09:00:00Z"), null, null, null, null);
     assertNull(event.payload);
   }
 
   @Test
   void anOmittedOccurredAtDefaultsToNow() {
     Instant before = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-    Event event = eventService.create("Right now", null, null, null, null);
+    Event event = eventService.create("Right now", null, null, null, null, null);
     assertFalse(event.occurredAt.isBefore(before));
   }
 
@@ -60,7 +60,7 @@ class EventServiceTest extends EventsTestSupport {
   void anEventMayBeRecordedInThePast() {
     // The normal case, not an edge one: a log is mostly written after the fact.
     Instant longAgo = Instant.parse("2020-01-01T00:00:00Z");
-    Event event = eventService.create("Backfilled", longAgo, null, null, null);
+    Event event = eventService.create("Backfilled", longAgo, null, null, null, null);
     assertEquals(longAgo, event.occurredAt);
     // ... and the row's own timestamps do not follow it, which is the whole reason there are three.
     assertTrue(event.createdAt.isAfter(longAgo));
@@ -69,9 +69,9 @@ class EventServiceTest extends EventsTestSupport {
   @Test
   void listIsNewestFirstByWhenItHappened() {
     // Insertion order deliberately disagrees with occurrence order — that is what is under test.
-    eventService.create("Middle", Instant.parse("2026-06-01T00:00:00Z"), null, null, null);
-    eventService.create("Oldest", Instant.parse("2026-01-01T00:00:00Z"), null, null, null);
-    eventService.create("Newest", Instant.parse("2026-12-01T00:00:00Z"), null, null, null);
+    eventService.create("Middle", Instant.parse("2026-06-01T00:00:00Z"), null, null, null, null);
+    eventService.create("Oldest", Instant.parse("2026-01-01T00:00:00Z"), null, null, null, null);
+    eventService.create("Newest", Instant.parse("2026-12-01T00:00:00Z"), null, null, null, null);
 
     List<String> names = eventService.list().stream().map(e -> e.name).toList();
     assertEquals(List.of("Newest", "Middle", "Oldest"), names);
@@ -83,10 +83,10 @@ class EventServiceTest extends EventsTestSupport {
     // by hand rarely has one, but a field the bus accepts and this path silently dropped would be
     // two definitions of the envelope hiding behind one entity.
     Instant when = Instant.parse("2026-07-31T09:00:00Z");
-    Event root = eventService.create("Root", when, null, null, null);
+    Event root = eventService.create("Root", when, null, null, null, null);
     assertNull(root.parentId);
 
-    Event child = eventService.create("Caused", when, null, null, root.id);
+    Event child = eventService.create("Caused", when, null, null, root.id, null);
     assertEquals(root.id, child.parentId);
     assertEquals(
         List.of("Caused"),
@@ -97,10 +97,10 @@ class EventServiceTest extends EventsTestSupport {
   void aHandRecordedEventsCauseIsValidatedTheSameWay() {
     Instant when = Instant.parse("2026-07-31T09:00:00Z");
     assertThrows(
-        BadRequestException.class, () -> eventService.create("Bad cause", when, null, null, "nope"));
+        BadRequestException.class, () -> eventService.create("Bad cause", when, null, null, "nope", null));
     // Blank is "no value" rather than an error — a client that meant to say nothing, clumsily — and
     // it normalises to null so that "no parent" is ONE value that replays equal to itself.
-    assertNull(eventService.create("Blank cause", when, null, null, "  ").parentId);
+    assertNull(eventService.create("Blank cause", when, null, null, "  ", null).parentId);
   }
 
   @Test
@@ -110,9 +110,9 @@ class EventServiceTest extends EventsTestSupport {
     // alone their order is the database's choice, and two identical requests may disagree — which
     // makes rendering unstable before it makes paging lossy.
     Instant tie = Instant.parse("2026-08-01T08:52:23.928965Z");
-    eventService.create("Sibling", tie, null, null, null);
-    eventService.create("Sibling", tie, null, null, null);
-    eventService.create("Sibling", tie, null, null, null);
+    eventService.create("Sibling", tie, null, null, null, null);
+    eventService.create("Sibling", tie, null, null, null, null);
+    eventService.create("Sibling", tie, null, null, null, null);
 
     List<String> ids = eventService.list().stream().map(e -> e.id).toList();
     List<String> descending = ids.stream().sorted(java.util.Comparator.reverseOrder()).toList();
@@ -125,7 +125,7 @@ class EventServiceTest extends EventsTestSupport {
   void aCursorWalksTheWholeLogAndTheLastPageSaysSo() {
     for (int i = 1; i <= 5; i++) {
       eventService.create(
-          "Row " + i, Instant.parse("2026-0" + i + "-01T00:00:00Z"), null, null, null);
+          "Row " + i, Instant.parse("2026-0" + i + "-01T00:00:00Z"), null, null, null, null);
     }
 
     List<String> walked = new java.util.ArrayList<>();
@@ -152,11 +152,11 @@ class EventServiceTest extends EventsTestSupport {
     // hand back the first one again (older or equal). The composite cursor resumes after a ROW.
     Instant tie = Instant.parse("2026-08-01T08:52:23.928965Z");
     Event newest =
-        eventService.create("Newest", Instant.parse("2026-08-01T09:00:00Z"), null, null, null);
-    Event forkA = eventService.create("Fork", tie, null, null, null);
-    Event forkB = eventService.create("Fork", tie, null, null, null);
+        eventService.create("Newest", Instant.parse("2026-08-01T09:00:00Z"), null, null, null, null);
+    Event forkA = eventService.create("Fork", tie, null, null, null, null);
+    Event forkB = eventService.create("Fork", tie, null, null, null, null);
     Event oldest =
-        eventService.create("Oldest", Instant.parse("2026-08-01T08:00:00Z"), null, null, null);
+        eventService.create("Oldest", Instant.parse("2026-08-01T08:00:00Z"), null, null, null, null);
 
     EventService.EventPage first = eventService.list(EventQuery.of(null, null, null, null, "2"));
     assertEquals(2, first.events().size());
@@ -189,7 +189,7 @@ class EventServiceTest extends EventsTestSupport {
     // value, same end-of-log signal, opposite order.
     for (int i = 1; i <= 5; i++) {
       eventService.create(
-          "Row " + i, Instant.parse("2026-0" + i + "-01T00:00:00Z"), null, null, null);
+          "Row " + i, Instant.parse("2026-0" + i + "-01T00:00:00Z"), null, null, null, null);
     }
 
     List<String> walked = new java.util.ArrayList<>();
@@ -214,7 +214,7 @@ class EventServiceTest extends EventsTestSupport {
     // twice by anything without its own dedupe, and a skip would be a lost event.
     for (int i = 1; i <= 3; i++) {
       eventService.create(
-          "Row " + i, Instant.parse("2026-0" + i + "-01T00:00:00Z"), null, null, null);
+          "Row " + i, Instant.parse("2026-0" + i + "-01T00:00:00Z"), null, null, null, null);
     }
 
     EventService.EventPage first =
@@ -243,11 +243,11 @@ class EventServiceTest extends EventsTestSupport {
     // (newer or equal). The flipped composite predicate resumes after a ROW.
     Instant tie = Instant.parse("2026-08-01T08:52:23.928965Z");
     Event oldest =
-        eventService.create("Oldest", Instant.parse("2026-08-01T08:00:00Z"), null, null, null);
-    Event forkA = eventService.create("Fork", tie, null, null, null);
-    Event forkB = eventService.create("Fork", tie, null, null, null);
+        eventService.create("Oldest", Instant.parse("2026-08-01T08:00:00Z"), null, null, null, null);
+    Event forkA = eventService.create("Fork", tie, null, null, null, null);
+    Event forkB = eventService.create("Fork", tie, null, null, null, null);
     Event newest =
-        eventService.create("Newest", Instant.parse("2026-08-01T09:00:00Z"), null, null, null);
+        eventService.create("Newest", Instant.parse("2026-08-01T09:00:00Z"), null, null, null, null);
 
     EventService.EventPage first =
         eventService.list(EventQuery.of(null, null, null, null, "2", List.of(), "asc"));
@@ -281,10 +281,10 @@ class EventServiceTest extends EventsTestSupport {
     // One log, two directions, the same rows: the property that makes a catch-up consumer and the
     // SPA agree about what history is.
     Instant tie = Instant.parse("2026-08-01T08:52:23.928965Z");
-    Event forkA = eventService.create("Fork", tie, null, null, null);
-    Event forkB = eventService.create("Fork", tie, null, null, null);
-    eventService.create("Newest", Instant.parse("2026-08-01T09:00:00Z"), null, null, null);
-    eventService.create("Oldest", Instant.parse("2026-08-01T08:00:00Z"), null, null, null);
+    Event forkA = eventService.create("Fork", tie, null, null, null, null);
+    Event forkB = eventService.create("Fork", tie, null, null, null, null);
+    eventService.create("Newest", Instant.parse("2026-08-01T09:00:00Z"), null, null, null, null);
+    eventService.create("Oldest", Instant.parse("2026-08-01T08:00:00Z"), null, null, null, null);
 
     List<String> newestFirst =
         ids(eventService.list(EventQuery.of(null, null, null, null, null, List.of(), "desc")));
@@ -304,10 +304,10 @@ class EventServiceTest extends EventsTestSupport {
   void ascendingComposesWithTheNameAndSinceFilters() {
     // Catch-up is a filtered read: a consumer subscribes to a handful of names and starts from a
     // watermark, so the direction has to compose with every filter rather than replace them.
-    eventService.create("BuildSuccessful", Instant.parse("2026-08-01T09:00:00Z"), null, null, null);
-    eventService.create("SCMRelease", Instant.parse("2026-08-01T09:00:01Z"), null, null, null);
-    eventService.create("BuildSuccessful", Instant.parse("2026-08-01T09:00:02Z"), null, null, null);
-    eventService.create("BuildSuccessful", Instant.parse("2026-07-01T09:00:00Z"), null, null, null);
+    eventService.create("BuildSuccessful", Instant.parse("2026-08-01T09:00:00Z"), null, null, null, null);
+    eventService.create("SCMRelease", Instant.parse("2026-08-01T09:00:01Z"), null, null, null, null);
+    eventService.create("BuildSuccessful", Instant.parse("2026-08-01T09:00:02Z"), null, null, null, null);
+    eventService.create("BuildSuccessful", Instant.parse("2026-07-01T09:00:00Z"), null, null, null, null);
 
     assertEquals(
         3,
@@ -354,9 +354,9 @@ class EventServiceTest extends EventsTestSupport {
     // tie is broken. Written first with one shared instant, it asserted an order that fell through
     // to the id — random UUIDs — and passed twice before failing: the tiebreaker is total, which is
     // the point of it, but it is not the caller's to predict.
-    eventService.create("BuildSuccessful", Instant.parse("2026-08-01T09:00:00Z"), null, null, null);
-    eventService.create("SCMRelease", Instant.parse("2026-08-01T09:00:01Z"), null, null, null);
-    eventService.create("SoftwareRelease", Instant.parse("2026-08-01T09:00:02Z"), null, null, null);
+    eventService.create("BuildSuccessful", Instant.parse("2026-08-01T09:00:00Z"), null, null, null, null);
+    eventService.create("SCMRelease", Instant.parse("2026-08-01T09:00:01Z"), null, null, null, null);
+    eventService.create("SoftwareRelease", Instant.parse("2026-08-01T09:00:02Z"), null, null, null, null);
 
     assertEquals(
         List.of("SCMRelease"),
@@ -374,9 +374,9 @@ class EventServiceTest extends EventsTestSupport {
 
   @Test
   void sinceIsAnInclusiveLowerBoundAndThereIsNoUpperOne() {
-    eventService.create("Old", Instant.parse("2026-07-31T23:59:59Z"), null, null, null);
-    eventService.create("Boundary", Instant.parse("2026-08-01T00:00:00Z"), null, null, null);
-    eventService.create("New", Instant.parse("2026-08-01T00:00:01Z"), null, null, null);
+    eventService.create("Old", Instant.parse("2026-07-31T23:59:59Z"), null, null, null, null);
+    eventService.create("Boundary", Instant.parse("2026-08-01T00:00:00Z"), null, null, null, null);
+    eventService.create("New", Instant.parse("2026-08-01T00:00:01Z"), null, null, null, null);
 
     assertEquals(
         List.of("New", "Boundary"),
@@ -386,11 +386,11 @@ class EventServiceTest extends EventsTestSupport {
   @Test
   void qIsASubstringOfTheOpaquePayload() {
     Instant when = Instant.parse("2026-08-01T09:00:00Z");
-    eventService.create("Build", when, "{\"repoId\":\"qits-stt\"}", null, null);
-    eventService.create("Release", when, "{\"repository\":\"qits-stt\"}", null, null);
-    eventService.create("Package", when, "{\"packageName\":\"qits/qits-stt\"}", null, null);
-    eventService.create("Elsewhere", when, "{\"repoId\":\"qits-events\"}", null, null);
-    eventService.create("Payloadless", when, null, null, null);
+    eventService.create("Build", when, "{\"repoId\":\"qits-stt\"}", null, null, null);
+    eventService.create("Release", when, "{\"repository\":\"qits-stt\"}", null, null, null);
+    eventService.create("Package", when, "{\"packageName\":\"qits/qits-stt\"}", null, null, null);
+    eventService.create("Elsewhere", when, "{\"repoId\":\"qits-events\"}", null, null, null);
+    eventService.create("Payloadless", when, null, null, null, null);
 
     // One question, three keys, and no single key that means "which repository" — which is why this
     // searches the string rather than pretending to filter a field.
@@ -410,9 +410,9 @@ class EventServiceTest extends EventsTestSupport {
   void attrFilterMatchesExactFragmentAndAndsAcrossFilters() {
     Instant when = Instant.parse("2026-08-01T09:00:00Z");
     eventService.create(
-        "Daemon", when, "{\"packageName\":\"qits-ci-daemon\",\"packageType\":\"daemon\"}", null, null);
+        "Daemon", when, "{\"packageName\":\"qits-ci-daemon\",\"packageType\":\"daemon\"}", null, null, null);
     eventService.create(
-        "Docker", when, "{\"packageName\":\"qits-ci\",\"packageType\":\"docker\"}", null, null);
+        "Docker", when, "{\"packageName\":\"qits-ci\",\"packageType\":\"docker\"}", null, null, null);
 
     assertEquals(
         List.of("Daemon"),
@@ -453,6 +453,35 @@ class EventServiceTest extends EventsTestSupport {
   }
 
   @Test
+  void environmentFilterIsAnExactMatchOnTheStampedTier() {
+    Instant when = Instant.parse("2026-08-01T09:00:00Z");
+    eventService.create("InDev", when, null, null, null, "dev");
+    eventService.create("OnPlatform", when, null, null, null, "platform");
+    eventService.create("BeforeTiers", when, null, null, null, null);
+
+    assertEquals(
+        List.of("InDev"),
+        names(eventService.list(EventQuery.of(null, null, null, null, null, null, null, "dev"))));
+    // A tier nothing was published from is an empty page, not an error — the filter is exact and
+    // the null of a pre-tier event matches no value.
+    assertEquals(
+        List.of(),
+        names(eventService.list(EventQuery.of(null, null, null, null, null, null, null, "prod"))));
+    // Blank is absent, the rule every filter here follows.
+    assertEquals(
+        3,
+        eventService
+            .list(EventQuery.of(null, null, null, null, null, null, null, "  "))
+            .events()
+            .size());
+    // ... and a value that could never have been stored is a 400 naming the parameter, the same
+    // shape guard the write path applies.
+    assertThrows(
+        BadRequestException.class,
+        () -> EventQuery.of(null, null, null, null, null, null, null, "Not A Slug"));
+  }
+
+  @Test
   void tooManyAttrFiltersIsRejected() {
     List<String> tooMany =
         java.util.stream.IntStream.rangeClosed(0, EventQuery.MAX_ATTR_FILTERS)
@@ -465,10 +494,10 @@ class EventServiceTest extends EventsTestSupport {
   @Test
   void theVocabularyIsEachNameOnceAlphabetically() {
     Instant when = Instant.parse("2026-08-01T09:00:00Z");
-    eventService.create("SoftwareRelease", when, null, null, null);
-    eventService.create("BuildSuccessful", when, null, null, null);
-    eventService.create("BuildSuccessful", when, null, null, null);
-    eventService.create("SCMRelease", when, null, null, null);
+    eventService.create("SoftwareRelease", when, null, null, null, null);
+    eventService.create("BuildSuccessful", when, null, null, null, null);
+    eventService.create("BuildSuccessful", when, null, null, null, null);
+    eventService.create("SCMRelease", when, null, null, null, null);
 
     assertEquals(List.of("BuildSuccessful", "SCMRelease", "SoftwareRelease"), eventService.names());
   }
@@ -526,7 +555,7 @@ class EventServiceTest extends EventsTestSupport {
 
   @Test
   void blankNameIsRejected() {
-    assertThrows(BadRequestException.class, () -> eventService.create("  ", null, null, null, null));
+    assertThrows(BadRequestException.class, () -> eventService.create("  ", null, null, null, null, null));
   }
 
   @Test

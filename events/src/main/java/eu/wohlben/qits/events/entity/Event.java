@@ -73,6 +73,20 @@ public class Event extends PanacheEntityBase {
   @Column(name = "parent_id")
   public String parentId;
 
+  /**
+   * The environment tier the publisher ran in — {@code dev}, {@code prod} — or {@code platform} for
+   * a publisher that serves every tier, or null for an event recorded before the platform knew
+   * tiers. Envelope data like {@link #parentId}: the payload is compared byte for byte, so a tier
+   * that entered it would make one occurrence published from two configurations two events.
+   *
+   * <p>Like the parent, it is part of the identity of the occurrence, so the idempotent {@code PUT}
+   * compares it. And like the parent, it names a row of another context's store (qits-deployments'
+   * environments table) by value with <b>no FK and no existence check</b>: an environment can be
+   * deleted after its events happened, and the events remain true.
+   */
+  @Column(length = 64)
+  public String environment;
+
   @CreationTimestamp
   @Column(name = "created_at", nullable = false, updatable = false)
   public Instant createdAt;

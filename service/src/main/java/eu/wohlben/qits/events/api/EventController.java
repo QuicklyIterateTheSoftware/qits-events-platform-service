@@ -97,6 +97,11 @@ public class EventController {
    *       works for string-valued keys of events published through {@code CanonicalJson} and nothing
    *       else, and it is a scan like {@code ?q=} rather than an indexed lookup. A value with no
    *       {@code =} is a 400 naming the parameter.
+   *   <li>{@code ?environment=} — exact match on the tier the publisher stamped ({@code dev},
+   *       {@code platform}). Envelope data on its own column, so unlike {@code ?q=} and {@code
+   *       ?attr=} it is an indexed equality, not a payload scan. A value that could never have been
+   *       stored — not a dns-safe name — is a 400 naming the parameter. Events recorded before the
+   *       platform knew tiers carry null and match no filter value.
    * </ul>
    *
    * <p><b>{@code ?parentId=} is answered whole and takes none of them.</b> A parent's children are
@@ -117,13 +122,15 @@ public class EventController {
       @QueryParam("since") String since,
       @QueryParam("q") String q,
       @QueryParam("attr") List<String> attr,
+      @QueryParam("environment") String environment,
       @QueryParam("cursor") String cursor,
       @QueryParam("order") String order,
       @QueryParam("limit") String limit) {
     if (parentId != null && !parentId.isBlank()) {
       return new ListEventsRequest.Response(toDtos(eventService.listChildrenOf(parentId)), null);
     }
-    var page = eventService.list(EventQuery.of(name, since, q, cursor, limit, attr, order));
+    var page =
+        eventService.list(EventQuery.of(name, since, q, cursor, limit, attr, order, environment));
     return new ListEventsRequest.Response(
         toDtos(page.events()),
         page.nextCursor() == null ? null : page.nextCursor().format());
@@ -176,14 +183,16 @@ public class EventController {
    * <p>{@code parentId} is optional here too, and validated exactly as it is on {@code PUT}: a
    * canonical UUID if present, never the new event's own id. A person recording by hand rarely names
    * a cause, but a field the bus accepts and this path dropped would be two definitions of an
-   * envelope behind one entity.
+   * envelope behind one entity. {@code environment} follows for the same reason, under the same
+   * shape guard as {@code PUT}.
    */
   public record CreateEventRequest(
       @NotBlank String name,
       Instant occurredAt,
       String payload,
       String description,
-      String parentId) {
+      String parentId,
+      String environment) {
     public record Response(EventDto event) {}
   }
 
@@ -196,7 +205,8 @@ public class EventController {
             request.occurredAt(),
             request.payload(),
             request.description(),
-            request.parentId());
+            request.parentId(),
+            request.environment());
     return new CreateEventRequest.Response(eventMapper.toDto(event));
   }
 
@@ -214,13 +224,19 @@ public class EventController {
    * this contract's backward compatibility and the reason this service ships before any publisher
    * that stamps. It is <em>inside</em> the replay comparison, though, so a second PUT of one id
    * under a different cause is a 400 rather than a silent disagreement about history.
+   *
+   * <p>{@code environment} is the tier the publisher ran in ({@code dev}, or {@code platform} for a
+   * publisher serving every tier). Same clauses as the parent: absent is legal and means null — the
+   * value of every event published before the field existed — and it is inside the replay
+   * comparison, because one id claiming two tiers is two claims about history.
    */
   public record PublishEventRequest(
       @NotBlank String name,
       @NotNull Instant occurredAt,
       String payload,
       String description,
-      String parentId) {
+      String parentId,
+      String environment) {
     public record Response(EventDto event) {}
   }
 
@@ -230,7 +246,8 @@ public class EventController {
    * <ul>
    *   <li><b>201</b> — the id was unknown; the row was created and pushed to matching subscribers
    *   <li><b>200</b> — the id was known and {@code name}/{@code occurredAt}/{@code payload}/{@code
-   *       parentId} match exactly: the same event arriving twice. Nothing written, nothing pushed
+   *       parentId}/{@code environment} match exactly: the same event arriving twice. Nothing
+   *       written, nothing pushed
    *   <li><b>400</b> — the id was known and something differs (a reused UUID, which no retry fixes),
    *       or the id is not a UUID at all, or {@code parentId} is not a UUID, or {@code parentId} is
    *       the event's own id
@@ -255,7 +272,8 @@ public class EventController {
             request.occurredAt(),
             request.payload(),
             request.description(),
-            request.parentId());
+            request.parentId(),
+            request.environment());
     var body = new PublishEventRequest.Response(eventMapper.toDto(published.event()));
     return RestResponse.status(
         published.outcome() == EventService.PublishOutcome.CREATED

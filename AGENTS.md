@@ -144,8 +144,11 @@ is what the eventstream library defaults to. Until 2026-08-17 each environment r
 own, and that was the only scoping this service ever had: there are no topics here, routing is the
 event signature plus each consumer's own watermark, so *which instance you dialled* was the whole
 boundary. Nothing in this repo encoded a tier, which is why the flip is a declaration and not a
-change of behaviour — but read a request for a per-environment view as a feature that does not
-exist yet, not as one that regressed.
+change of behaviour. The per-tier view the wall used to give for free came back as data:
+`environment` on the envelope — the tier the publisher ran in (`dev`, or `platform` for a service
+that serves every tier), stamped by the publisher from its own `QITS_ENVIRONMENT`, null for events
+recorded before the platform knew tiers — with `?environment=` on the list route as the read model
+(an indexed equality on its own column, `idx_event_environment`, unlike the payload scans).
 
 `PUT /events/api/events/{id}` and `/events/stream` are the two surfaces that make this a bus rather
 than a log, and the wire contract for both is frozen in `eventsourcing-plan.md` in the superproject.
@@ -156,14 +159,18 @@ Three things about it are load-bearing here:
   reformatted the value — pretty-printing it, reordering keys, parsing and re-serializing it — would
   break the byte-for-byte equality the idempotent PUT rests on, and the break would look like
   "publishers keep getting 400 on their own retries".
-- **The comparison is `name` + `occurredAt` + `payload` + `parentId`, and `description` is outside
-  it** on purpose. The line is *identity of the occurrence* versus *prose about it*: the human
+- **The comparison is `name` + `occurredAt` + `payload` + `parentId` + `environment`, and
+  `description` is outside it** on purpose. The line is *identity of the occurrence* versus *prose about it*: the human
   account is not part of an event's identity, and a cause is — it is machine-consumed structure and
   the edge a chain is drawn from, so two PUTs of one id claiming different parents are two different
   claims about history. Kept outside, the server would silently keep the first and answer 200 while
   the publisher believed it had published the second: two services disagreeing about the shape of
   history with no error anywhere. It costs a well-behaved publisher nothing, because an outbox
-  stores the envelope whole and its own two attempts cannot disagree. `occurredAt` is truncated to
+  stores the envelope whole and its own two attempts cannot disagree. `environment` sits on the
+  identity side by the same argument: one id claiming two tiers is two claims about history. Its
+  guard is shape rather than existence — a dns-safe name (`Validations.requireEnvironmentIfPresent`),
+  never a lookup against qits-deployments' environments, which can delete an environment after its
+  events truthfully happened. `occurredAt` is truncated to
   microseconds on the way in, because the column is `timestamp(6)` and comparing the caller's
   nanoseconds against the database's microseconds would 400 a publisher's honest retry.
 - **`parentId` is validated twice and checked never.** It must be a canonical UUID when present, and

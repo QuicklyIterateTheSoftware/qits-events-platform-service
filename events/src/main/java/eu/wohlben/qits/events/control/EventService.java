@@ -123,12 +123,19 @@ public class EventService {
    * transaction, and the retried body has to be database work and nothing else.
    */
   public Event create(
-      String name, Instant occurredAt, String payload, String description, String parentId) {
+      String name,
+      Instant occurredAt,
+      String payload,
+      String description,
+      String parentId,
+      String environment) {
     Validations.requireText(name, "name");
     String id = UUID.randomUUID().toString();
     Instant when = atStoredPrecision(occurredAt == null ? Instant.now() : occurredAt);
     String cause = causeOf(id, parentId);
-    return DbRetry.inNewTx("record an event", () -> store(id, name, when, payload, description, cause));
+    String tier = environmentOf(environment);
+    return DbRetry.inNewTx(
+        "record an event", () -> store(id, name, when, payload, description, cause, tier));
   }
 
   /**
@@ -140,25 +147,27 @@ public class EventService {
    * <ul>
    *   <li>the id is unknown → the row is created and announced ({@link PublishOutcome#CREATED},
    *       201);
-   *   <li>the id is known and {@code name}, {@code occurredAt}, {@code payload} and {@code parentId}
-   *       are all exactly equal → this is the same event arriving twice, because the publisher's
-   *       first attempt got no answer. Nothing is written and <b>nothing is announced</b> ({@link
-   *       PublishOutcome#REPLAYED}, 200): a subscriber must not see an event twice because a network
-   *       dropped an acknowledgement;
-   *   <li>the id is known and any of the four differs → the caller reused a UUID, which is not
+   *   <li>the id is known and {@code name}, {@code occurredAt}, {@code payload}, {@code parentId}
+   *       and {@code environment} are all exactly equal → this is the same event arriving twice,
+   *       because the publisher's first attempt got no answer. Nothing is written and <b>nothing is
+   *       announced</b> ({@link PublishOutcome#REPLAYED}, 200): a subscriber must not see an event
+   *       twice because a network dropped an acknowledgement;
+   *   <li>the id is known and any of the five differs → the caller reused a UUID, which is not
    *       something a retry can fix, so it is a 400 rather than a conflict to sit and poll on.
    * </ul>
    *
-   * <p><b>{@code description} is deliberately outside the comparison and {@code parentId} is
-   * deliberately inside it.</b> The line is identity of the occurrence versus prose about it.
-   * Description is the human account; a publisher that improves its wording on a retry has not
-   * published a different event. A parent is on the identity side: it is machine-consumed structure,
-   * it is the edge a chain is drawn from, and two PUTs of one id claiming different causes are two
-   * different claims about history — kept outside, the server would silently keep the first and
-   * answer 200 while the publisher believed it had published the second, which is two services
-   * disagreeing about the shape of history with no error anywhere. The strictness costs a
-   * well-behaved publisher nothing: an outbox stores the envelope whole, so its own two attempts
-   * cannot disagree.
+   * <p><b>{@code description} is deliberately outside the comparison; {@code parentId} and {@code
+   * environment} are deliberately inside it.</b> The line is identity of the occurrence versus
+   * prose about it. Description is the human account; a publisher that improves its wording on a
+   * retry has not published a different event. A parent is on the identity side: it is
+   * machine-consumed structure, it is the edge a chain is drawn from, and two PUTs of one id
+   * claiming different causes are two different claims about history — kept outside, the server
+   * would silently keep the first and answer 200 while the publisher believed it had published the
+   * second, which is two services disagreeing about the shape of history with no error anywhere.
+   * The environment sits on the same side by the same argument: which tier something happened in is
+   * machine-consumed structure, and one id claiming two tiers is two claims about history. The
+   * strictness costs a well-behaved publisher nothing: an outbox stores the envelope whole, so its
+   * own two attempts cannot disagree.
    *
    * <p>The stored description is left as it was — a replay writes nothing at all, which is what
    * makes 200 free of a transaction.
@@ -178,7 +187,8 @@ public class EventService {
       Instant occurredAt,
       String payload,
       String description,
-      String parentId) {
+      String parentId,
+      String environment) {
     Validations.requireUuid(id, "id");
     Validations.requireText(name, "name");
     // Unlike create, publish will not default it: an event whose time this server invented could
@@ -187,23 +197,31 @@ public class EventService {
     Validations.requirePresent(occurredAt, "occurredAt");
     Instant when = atStoredPrecision(occurredAt);
     String cause = causeOf(id, parentId);
+    String tier = environmentOf(environment);
     return DbRetry.inNewTx(
-        "publish an event", () -> decide(id, name, when, payload, description, cause));
+        "publish an event", () -> decide(id, name, when, payload, description, cause, tier));
   }
 
   /** One attempt at {@link #publish}: the whole of it, and nothing that is not database work. */
   private Published decide(
-      String id, String name, Instant when, String payload, String description, String cause) {
+      String id,
+      String name,
+      Instant when,
+      String payload,
+      String description,
+      String cause,
+      String environment) {
     Event existing = eventRepository.findById(id);
     if (existing == null) {
       return new Published(
-          store(id, name, when, payload, description, cause), PublishOutcome.CREATED);
+          store(id, name, when, payload, description, cause, environment), PublishOutcome.CREATED);
     }
 
     if (!name.equals(existing.name)
         || !when.equals(existing.occurredAt)
         || !Objects.equals(payload, existing.payload)
-        || !Objects.equals(cause, existing.parentId)) {
+        || !Objects.equals(cause, existing.parentId)
+        || !Objects.equals(environment, existing.environment)) {
       throw new BadRequestException(
           "Event " + id + " already exists with different content — a UUID may not be reused");
     }
@@ -231,7 +249,13 @@ public class EventService {
    * see exactly one frame per committed row however many attempts it took.
    */
   private Event store(
-      String id, String name, Instant when, String payload, String description, String cause) {
+      String id,
+      String name,
+      Instant when,
+      String payload,
+      String description,
+      String cause,
+      String environment) {
     Event event = new Event();
     event.id = id;
     event.name = name;
@@ -239,6 +263,7 @@ public class EventService {
     event.payload = payload;
     event.description = description;
     event.parentId = cause;
+    event.environment = environment;
     eventRepository.persist(event);
     eventRepository.flush();
     announce(event);
@@ -253,7 +278,8 @@ public class EventService {
             event.occurredAt,
             event.payload,
             event.description,
-            event.parentId));
+            event.parentId,
+            event.environment));
   }
 
   /**
@@ -290,6 +316,26 @@ public class EventService {
       throw new BadRequestException("Event " + id + " cannot be its own parent");
     }
     return cause;
+  }
+
+  /**
+   * The environment to store, or null — {@link #causeOf}'s shape for the tier field, and the same
+   * rules on both write paths.
+   *
+   * <p>It must be a dns-safe environment name when there is one ({@code dev}, {@code platform}) —
+   * the shape qits-deployments gives environments, and the literal a platform-tier publisher stamps.
+   * There is deliberately no check against the environments themselves, for {@code causeOf}'s
+   * reason: those rows live in another context's store, an environment can be deleted after its
+   * events happened, and a 400 here is unretryable — a timing accident would become permanent loss.
+   *
+   * <p>Blank normalises to null, so that "no tier" is one value and a replay of it compares equal.
+   * Null stays null rather than defaulting: the <em>publisher</em> resolves its tier (that is where
+   * the configuration lives), and an event that arrives without one predates the field — inventing
+   * a value here would forge history.
+   */
+  private static String environmentOf(String environment) {
+    Validations.requireEnvironmentIfPresent(environment, "environment");
+    return environment == null || environment.isBlank() ? null : environment;
   }
 
   /**

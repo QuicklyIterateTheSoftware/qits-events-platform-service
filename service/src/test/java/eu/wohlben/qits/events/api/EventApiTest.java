@@ -37,6 +37,16 @@ class EventApiTest {
 
   private String create(
       String name, String occurredAt, String payload, String description, String parentId) {
+    return create(name, occurredAt, payload, description, parentId, null);
+  }
+
+  private String create(
+      String name,
+      String occurredAt,
+      String payload,
+      String description,
+      String parentId,
+      String environment) {
     return given()
         .contentType(ContentType.JSON)
         .body(
@@ -45,7 +55,8 @@ class EventApiTest {
                 occurredAt == null ? null : Instant.parse(occurredAt),
                 payload,
                 description,
-                parentId))
+                parentId,
+                environment))
         .when()
         .post("/events/api/events")
         .then()
@@ -181,7 +192,10 @@ class EventApiTest {
         .then()
         .statusCode(200)
         .body("event", hasKey("parentId"))
-        .body("event.parentId", nullValue());
+        .body("event.parentId", nullValue())
+        // ... and the tier key rides on the same clause: on the wire even when it is null.
+        .body("event", hasKey("environment"))
+        .body("event.environment", nullValue());
   }
 
   /**
@@ -768,6 +782,57 @@ class EventApiTest {
         .then()
         .statusCode(200)
         .body("events.name", contains(stem + "-b"));
+  }
+
+  @Test
+  void theEnvironmentFilterIsAnExactMatchOnTheStampedTier() {
+    String stem = "EnvFilter" + System.nanoTime();
+    create(stem + "-dev", "2026-08-01T09:00:00Z", null, null, null, "dev");
+    create(stem + "-platform", "2026-08-01T09:00:01Z", null, null, null, "platform");
+    create(stem + "-untried", "2026-08-01T09:00:02Z", null, null, null, null);
+    String allThree = stem + "-dev," + stem + "-platform," + stem + "-untried";
+
+    given()
+        .queryParam("name", allThree)
+        .queryParam("environment", "dev")
+        .when()
+        .get("/events/api/events")
+        .then()
+        .statusCode(200)
+        .body("events.name", contains(stem + "-dev"));
+
+    // A tier nothing was published from is an empty page, never an error — and a pre-tier event's
+    // null matches no filter value.
+    given()
+        .queryParam("name", allThree)
+        .queryParam("environment", "prod")
+        .when()
+        .get("/events/api/events")
+        .then()
+        .statusCode(200)
+        .body("events", empty());
+
+    // Blank is absent, the rule every filter here follows.
+    given()
+        .queryParam("name", allThree)
+        .queryParam("environment", "")
+        .when()
+        .get("/events/api/events")
+        .then()
+        .statusCode(200)
+        .body("events.name", contains(stem + "-untried", stem + "-platform", stem + "-dev"));
+  }
+
+  @Test
+  void anEnvironmentThatCouldNeverHaveBeenStoredIsFourHundred() {
+    given()
+        .queryParam("environment", "Not A Slug")
+        .when()
+        .get("/events/api/events")
+        .then()
+        .statusCode(400)
+        .contentType(ContentType.JSON)
+        .body("message", notNullValue());
   }
 
   @Test
