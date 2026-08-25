@@ -63,6 +63,12 @@ public class EventRepository implements PanacheRepositoryBase<Event, String> {
       clauses.add("lower(payload) like :search escape '!'");
       parameters.and("search", query.search());
     }
+    if (query.environment() != null) {
+      // An equality on the event's own column — what idx_event_environment exists for — rather
+      // than a payload scan: the tier is envelope data, so the filter never touches the payload.
+      clauses.add("environment = :environment");
+      parameters.and("environment", query.environment());
+    }
     for (int i = 0; i < query.attrFilters().size(); i++) {
       // One clause per ?attr=, same scan as ?q= above, narrowed to one "key":"value" fragment —
       // EventQuery.attrFiltersOf already built the escaped pattern, this just binds it.

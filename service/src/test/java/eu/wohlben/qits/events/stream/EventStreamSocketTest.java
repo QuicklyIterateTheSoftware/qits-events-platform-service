@@ -84,6 +84,11 @@ class EventStreamSocketTest {
 
   private static io.restassured.response.Response publish(
       String id, String name, String payload, String parentId) {
+    return publish(id, name, payload, parentId, null);
+  }
+
+  private static io.restassured.response.Response publish(
+      String id, String name, String payload, String parentId, String environment) {
     return given()
         .contentType(ContentType.JSON)
         .body(
@@ -93,6 +98,8 @@ class EventStreamSocketTest {
                 + quoted(payload)
                 + ",\"description\":null,\"parentId\":"
                 + (parentId == null ? "null" : "\"" + parentId + "\"")
+                + ",\"environment\":"
+                + (environment == null ? "null" : "\"" + environment + "\"")
                 + "}")
         .when()
         .put("/events/api/events/" + id);
@@ -146,14 +153,16 @@ class EventStreamSocketTest {
       String id = record(name, "{\"branch\":\"main\"}");
       JsonNode frame = nextFrame(subscriber);
 
-      // The six fields of the wire contract, and NOT createdAt/updatedAt: those are this database's
-      // bookkeeping, not facts about the thing that happened. Their ORDER is no longer part of the
-      // contract — both sides bind by name — but the set is, and so is the fact that a sixth field
-      // was APPENDED: a subscriber built against the first five reads the frame it always read.
+      // The seven fields of the wire contract, and NOT createdAt/updatedAt: those are this
+      // database's bookkeeping, not facts about the thing that happened. Their ORDER is no longer
+      // part of the contract — both sides bind by name — but the set is, and so is the fact that
+      // each new field was APPENDED: a subscriber built against the first five reads the frame it
+      // always read.
       List<String> fields = new ArrayList<>();
       frame.fieldNames().forEachRemaining(fields::add);
       assertEquals(
-          List.of("id", "name", "occurredAt", "payload", "description", "parentId"), fields);
+          List.of("id", "name", "occurredAt", "payload", "description", "parentId", "environment"),
+          fields);
 
       assertEquals(id, frame.get("id").asText());
       assertEquals(name, frame.get("name").asText());
@@ -165,6 +174,9 @@ class EventStreamSocketTest {
       // An explicit null, not an omission: a subscriber reads "this event is a root" off the frame
       // rather than off a missing key, which is the only reading that stays true when it is set.
       assertTrue(frame.get("parentId").isNull());
+      // Same clause for the tier: null is "recorded before the platform knew tiers", and it is on
+      // the wire as a value rather than a gap.
+      assertTrue(frame.get("environment").isNull());
     }
   }
 
@@ -185,6 +197,23 @@ class EventStreamSocketTest {
       assertEquals(parent, frame.get("parentId").asText());
       // The parent is an id this log has never seen, and the frame carries it all the same —
       // nothing orders a parent's arrival before its child's.
+    }
+  }
+
+  @Test
+  void aFrameCarriesTheTierTheEventWasPublishedFrom() throws Exception {
+    // Since the bus became one instance for every environment, the frame is where a subscriber
+    // learns which tier an event belongs to — there is no per-tier broker left to encode it.
+    String name = aSignature("Tiered");
+    String id = UUID.randomUUID().toString();
+    try (FakeSubscriber subscriber = FakeSubscriber.dial(endpoint)) {
+      subscriber.subscribe(name);
+      awaitSubscribed(name);
+
+      publish(id, name, "{\"attempt\":1}", null, "dev").then().statusCode(201);
+      JsonNode frame = nextFrame(subscriber);
+      assertEquals(id, frame.get("id").asText());
+      assertEquals("dev", frame.get("environment").asText());
     }
   }
 

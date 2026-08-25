@@ -40,6 +40,22 @@ class EventPublishApiTest {
         + "}";
   }
 
+  /** The whole envelope as today's publisher sends it — {@code environment} always present too. */
+  private static String envelope(
+      String name, String occurredAt, String payload, String parentId, String environment) {
+    return "{\"name\":\""
+        + name
+        + "\",\"occurredAt\":\""
+        + occurredAt
+        + "\",\"payload\":"
+        + (payload == null ? "null" : "\"" + payload + "\"")
+        + ",\"description\":null,\"parentId\":"
+        + (parentId == null ? "null" : "\"" + parentId + "\"")
+        + ",\"environment\":"
+        + (environment == null ? "null" : "\"" + environment + "\"")
+        + "}";
+  }
+
   /**
    * The envelope <b>without</b> the field at all — what a publisher built against the five-field
    * contract sends, and what this service must go on accepting. That compatibility clause is the
@@ -224,6 +240,78 @@ class EventPublishApiTest {
                 UUID.randomUUID().toString()))
         .then()
         .statusCode(400);
+  }
+
+  @Test
+  void aPublishMayNameTheTierItRanIn() {
+    String id = UUID.randomUUID().toString();
+    String body = envelope("BuildSuccessful", "2026-07-31T12:46:03Z", PAYLOAD, null, "dev");
+
+    put(id, body).then().statusCode(201).body("event.environment", equalTo("dev"));
+    // ... and the same bytes again are the same event, tier and all.
+    put(id, body).then().statusCode(200).body("event.environment", equalTo("dev"));
+
+    given()
+        .when()
+        .get("/events/api/events/" + id)
+        .then()
+        .statusCode(200)
+        .body("event.environment", equalTo("dev"));
+  }
+
+  @Test
+  void theEnvironmentKeyIsPresentEvenWhenThereIsNoTier() {
+    // The same hasKey clause parentId carries, for the same reason: absent also reads as null, and
+    // a consumer probing "does this service know about tiers?" looks for the key itself.
+    String id = UUID.randomUUID().toString();
+    put(id, envelope("BuildSuccessful", "2026-07-31T12:46:03Z", PAYLOAD, null))
+        .then()
+        .statusCode(201)
+        .body("event", hasKey("environment"))
+        .body("event.environment", nullValue());
+
+    given().when().get("/events/api/events/" + id).then().body("event", hasKey("environment"));
+  }
+
+  @Test
+  void reTieringOneIdIsFourHundredInBothDirections() {
+    // environment is INSIDE the comparison, like parentId: one id claiming two tiers is two
+    // different claims about history.
+    String first = UUID.randomUUID().toString();
+    put(first, envelope("BuildSuccessful", "2026-07-31T12:46:03Z", PAYLOAD, null, null))
+        .then()
+        .statusCode(201);
+    // null → set
+    put(first, envelope("BuildSuccessful", "2026-07-31T12:46:03Z", PAYLOAD, null, "dev"))
+        .then()
+        .statusCode(400)
+        .contentType(ContentType.JSON)
+        .body("message", notNullValue());
+
+    String second = UUID.randomUUID().toString();
+    put(second, envelope("BuildSuccessful", "2026-07-31T12:46:03Z", PAYLOAD, null, "dev"))
+        .then()
+        .statusCode(201);
+    // set → null, and set → a different one
+    put(second, envelope("BuildSuccessful", "2026-07-31T12:46:03Z", PAYLOAD, null, null))
+        .then()
+        .statusCode(400);
+    put(second, envelope("BuildSuccessful", "2026-07-31T12:46:03Z", PAYLOAD, null, "platform"))
+        .then()
+        .statusCode(400);
+  }
+
+  @Test
+  void anEnvironmentThatIsNotADnsSafeNameIsFourHundred() {
+    // Shape, not existence: whether 'dev' exists is deliberately never asked, but 'Dev' could never
+    // have been an environment at all.
+    put(
+            UUID.randomUUID().toString(),
+            envelope("BuildSuccessful", "2026-07-31T12:46:03Z", PAYLOAD, null, "Not A Slug"))
+        .then()
+        .statusCode(400)
+        .contentType(ContentType.JSON)
+        .body("message", notNullValue());
   }
 
   @Test

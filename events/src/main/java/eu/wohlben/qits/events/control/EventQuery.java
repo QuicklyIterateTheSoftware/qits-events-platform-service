@@ -27,6 +27,7 @@ public record EventQuery(
     Instant since,
     String search,
     List<String> attrFilters,
+    String environment,
     EventCursor cursor,
     EventOrder order,
     int limit) {
@@ -92,14 +93,42 @@ public record EventQuery(
       String limit,
       List<String> attr,
       String order) {
+    return of(name, since, q, cursor, limit, attr, order, null);
+  }
+
+  /**
+   * @param environment exact match on the tier the publisher stamped — an equality on its own
+   *     column, unlike the payload scans above it. It takes the same shape guard as the write path,
+   *     so a value that could never have been stored is a 400 naming the parameter rather than a
+   *     silently empty page.
+   */
+  public static EventQuery of(
+      String name,
+      String since,
+      String q,
+      String cursor,
+      String limit,
+      List<String> attr,
+      String order,
+      String environment) {
     return new EventQuery(
         namesOf(name),
         sinceOf(since),
         searchOf(q),
         attrFiltersOf(attr),
+        environmentOf(environment),
         EventCursor.parse(cursor),
         EventOrder.parse(order),
         limitOf(limit));
+  }
+
+  private static String environmentOf(String environment) {
+    if (environment == null || environment.isBlank()) {
+      return null;
+    }
+    String trimmed = environment.trim();
+    Validations.requireEnvironmentIfPresent(trimmed, "environment");
+    return trimmed;
   }
 
   private static List<String> namesOf(String name) {

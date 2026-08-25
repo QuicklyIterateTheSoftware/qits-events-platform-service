@@ -61,4 +61,23 @@ final class Validations {
     }
     requireUuid(value, field);
   }
+
+  /**
+   * Throws {@link BadRequestException} unless {@code value} is a dns-safe environment name — null
+   * and blank are fine, the shape an <em>optional</em> field takes (see {@link
+   * #requireUuidIfPresent} for why both read as "no value").
+   *
+   * <p>The rule mirrors what qits-deployments accepts as an environment name: lowercase letters and
+   * digits, dashes inside but not at either end, at most 63 characters. {@code platform} — the
+   * literal a publisher serving every tier stamps — passes like any other name. The guard is about
+   * shape, not existence; whether such an environment exists is deliberately never checked.
+   */
+  static void requireEnvironmentIfPresent(String value, String field) {
+    if (value == null || value.isBlank()) {
+      return;
+    }
+    if (value.length() > 63 || !value.matches("[a-z0-9](?:[a-z0-9-]*[a-z0-9])?")) {
+      throw new BadRequestException(field + " must be a dns-safe environment name");
+    }
+  }
 }

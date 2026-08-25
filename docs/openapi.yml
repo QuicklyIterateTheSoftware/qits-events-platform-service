@@ -20,6 +20,8 @@ components:
           type: string
         parentId:
           type: string
+        environment:
+          type: string
     EventDto:
       type: object
       properties:
@@ -34,6 +36,8 @@ components:
         description:
           type: string
         parentId:
+          type: string
+        environment:
           type: string
         createdAt:
           $ref: "#/components/schemas/Instant"
@@ -60,6 +64,8 @@ components:
         description:
           type: string
         parentId:
+          type: string
+        environment:
           type: string
     Response:
       type: object
@@ -108,6 +114,10 @@ paths:
           items:
             type: string
       - name: cursor
+        in: query
+        schema:
+          type: string
+      - name: environment
         in: query
         schema:
           type: string
@@ -281,4 +291,4 @@ paths:
         - qits:admin
 info:
   title: qits-events API
-  version: 2026.812.155553
+  version: 2026.824.215959

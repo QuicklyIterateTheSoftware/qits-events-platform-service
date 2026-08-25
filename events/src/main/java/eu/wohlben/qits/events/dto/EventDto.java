@@ -13,6 +13,10 @@ import java.time.Instant;
  * route. A {@code parentId} naming an event this log cannot produce is not an error: treat it as the
  * start of the chain. And a chain-walking client must bound its own depth and track the ids it has
  * visited, because nothing on this side prevents a cycle.
+ *
+ * <p>{@code environment} is the tier the publisher ran in ({@code dev}, {@code platform}), or null
+ * for an event recorded before the platform knew tiers. Like {@code parentId} it may name an
+ * environment this reader cannot resolve — one deleted since — and that is data, not an error.
  */
 public record EventDto(
     String id,
@@ -21,5 +25,6 @@ public record EventDto(
     String payload,
     String description,
     String parentId,
+    String environment,
     Instant createdAt,
     Instant updatedAt) {}
