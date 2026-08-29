@@ -132,6 +132,16 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <!-- The user-story framework: EventBusBootstrapIT is written as @UserStory methods, so
+                 the bus's packaged round-trip proof doubles as documentation — steps, interactions
+                 and a sequence diagram emitted under target/userstories/. Both stories are
+                 browserless (an Interactions parameter and no Flow), so the transitive Playwright
+                 never launches anything and this needs no Chromium anywhere. -->
+            <groupId>${project.groupId}</groupId>
+            <artifactId>qits-userflows</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <!-- The store every @QuarkusTest here boots against, and the one the packaged-artifact
                  ITs hand to the launched process. Zonky spawns real postgres binaries as a child
                  process — a maven dependency rather than a container — which is what keeps the
@@ -154,6 +164,17 @@
         <dependency>
             <groupId>io.zonky.test.postgres</groupId>
             <artifactId>embedded-postgres-binaries-linux-arm64v8</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- The FOURTH arch, and it is the CI one. The step containers are Alpine (musl):
+                 .config/qits/ci-event-userflows.yml runs `mvn verify` in maven-base as
+                 `user: build`, and zonky picks the -alpine binaries there at run time. Without it
+                 the suite resolves fine and then dies mid-run with no binary for the platform it is
+                 on. qits-githost and qits-platform-deployments carry the same fourth arch for the
+                 same pipeline. -->
+            <groupId>io.zonky.test.postgres</groupId>
+            <artifactId>embedded-postgres-binaries-linux-amd64-alpine</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

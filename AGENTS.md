@@ -388,6 +388,45 @@ The three move together — a new platform jar needs none of them again.
 - A `Failed to start quarkus` / `Port already bound` failure is the known flake — `@QuarkusTest`
   restarts racing for the test port. Re-run first; `test-port=0` is why it should not happen here.
 
+### The userflow stories
+
+`EventBusBootstrapIT` is the third packaged-artifact test and the first **userflow**: two
+`@UserStory` methods that prove the bus's round trip and double as its documentation, emitted under
+`service/target/userstories/` with the interactions drawn as a mermaid sequence diagram. Run them:
+
+    ./mvnw -B -ntp verify -Dquarkus.quinoa=false -DskipITs=false "-Dit.test=EventBusBootstrapIT"
+
+- **Browserless.** Each story takes an `Interactions` and no `Flow`, so qits-userflows' transitive
+  Playwright never launches anything and no Chromium is needed anywhere. Keep it that way — the
+  pipeline step has no browser in it.
+- **What only the artifact can show.** The doors (`@RolesAllowed("qits:system")` on publish,
+  `qits:admin` on the reads, both on the socket) exist *only* in a `prod` launch: under
+  `@QuarkusTest` qits-auth-core's `%test` dev-user hands every request all four platform roles
+  before an annotation is consulted, and `ForwardAuthMechanism` is `LaunchMode.NORMAL`-guarded on
+  top of that. The stream's door is on the **HTTP upgrade** (3.34's `SecurityHttpUpgradeCheck`), so
+  an unauthorised consumer is refused the handshake rather than connected and ignored — which is why
+  `FakeSubscriber.dial` grew a headers overload, and why the unauthenticated dial *throwing* is the
+  assertable form of that door.
+- **A consequence worth knowing before you run the others.** By reading rather than by measurement:
+  `PackagedSurfaceIT` drives `/events/api/*` and dials `/events/stream` with **no** `X-Qits-User`,
+  and it has not been touched since the roles landed (`feat: protect event APIs and streams`,
+  2026-08-15). In a `NORMAL` launch that is an anonymous identity against a `@RolesAllowed`
+  boundary. If a `-Dnative` build or a blanket `-DskipITs=false` comes back 401 there, that is the
+  cause and the fix is the two headers, not the roles.
+- **No mock on the far side, deliberately.** qits-events dials nobody — its callers are the
+  qits-eventstream jars inside every sibling service — so the story's counterparties are a real
+  rest-assured client and a real `FakeSubscriber` socket in the test JVM, and this repo pulls
+  `qits-userflows` without `qits-service-mock`. The only startup dial-out to neutralise is the OTel
+  exporter, which the IT's profile darkens with `quarkus.otel.sdk.disabled=true`.
+- **The two stories share one launched process and one log**, so neither may depend on the other
+  having run. They are kept apart by *vocabulary*: every read filters on `?name=`, and the stories
+  name different events. Do not add an assertion that counts the whole log.
+- `.config/qits/ci-event-userflows.yml` publishes the reports per commit as the docs bundle
+  `@userflows/qits-events` (the **storage id**, the same one `ci-event-release.yml` selects on),
+  version = the bare sha. It is **non-gating**, runs `-Dquarkus.quinoa=false`, and opts into ITs
+  **by name** so the SPA-asserting `PackagedSurfaceIT` and the OTLP-stub `PackagedLogBridgeIT` stay
+  out of a run that is about neither.
+
 ## Application logs leave over OTLP
 
 `org.jboss.logging.Logger` calls become OTLP log records through Quarkus' OpenTelemetry logging
