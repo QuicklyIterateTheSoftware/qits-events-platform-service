@@ -5,7 +5,7 @@
     <parent>
         <groupId>eu.wohlben.qits</groupId>
         <artifactId>qits-events</artifactId>
-        <version>2026.825.75624</version>
+        <version>2026.829.122019</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -104,6 +104,16 @@
         <dependency>
             <groupId>io.zonky.test.postgres</groupId>
             <artifactId>embedded-postgres-binaries-linux-arm64v8</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- The FOURTH arch, and it is the CI one. .config/qits/ci-event-userflows.yml runs
+                 `verify` over the WHOLE REACTOR in an Alpine (musl) step container, so this
+                 module's own embedded postgres — EventServiceTest and its siblings — has to start
+                 there too, not just `service`'s. Zonky picks the binary at run time, so a missing
+                 arch fails in the middle of a suite rather than during resolution. -->
+            <groupId>io.zonky.test.postgres</groupId>
+            <artifactId>embedded-postgres-binaries-linux-amd64-alpine</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

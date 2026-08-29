@@ -6,6 +6,7 @@ import io.vertx.core.http.WebSocketClient;
 import io.vertx.core.http.WebSocketConnectOptions;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -26,7 +27,22 @@ public final class FakeSubscriber implements AutoCloseable {
   private final WebSocket socket;
   private final BlockingQueue<String> received = new ArrayBlockingQueue<>(256);
 
+  /** Dial with no headers at all — the anonymous client, which is a caller in its own right. */
   public static FakeSubscriber dial(URI endpoint) throws Exception {
+    return dial(endpoint, Map.of());
+  }
+
+  /**
+   * The same dial, carrying headers on the UPGRADE — which is where this socket's door is: the
+   * endpoint's class-level {@code @RolesAllowed} is checked on the handshake, so a connection is
+   * either authorised before it exists or refused outright. Pass the pair qits-gateway asserts
+   * ({@code X-Qits-User} / {@code X-Qits-Roles}) and the server cannot tell this from a sibling
+   * service's eventstream jar, which dials with exactly those two headers.
+   *
+   * <p>An empty map is the unauthenticated dial, and against a launched artifact that is a
+   * <em>refusal</em>: this method then throws, which is the assertable form of the door being shut.
+   */
+  public static FakeSubscriber dial(URI endpoint, Map<String, String> headers) throws Exception {
     Vertx vertx = Vertx.vertx();
     try {
       WebSocketClient client = vertx.createWebSocketClient();
@@ -35,6 +51,9 @@ public final class FakeSubscriber implements AutoCloseable {
               .setHost(endpoint.getHost())
               .setPort(endpoint.getPort())
               .setURI(endpoint.getPath());
+      for (Map.Entry<String, String> header : headers.entrySet()) {
+        options.addHeader(header.getKey(), header.getValue());
+      }
       WebSocket socket =
           client
               .connect(options)

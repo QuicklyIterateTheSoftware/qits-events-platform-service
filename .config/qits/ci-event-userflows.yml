@@ -1,0 +1,110 @@
+# The per-commit userflow run: `mvn verify` at the pushed commit — which regenerates
+# service/target/userstories/ through EventBusBootstrapIT — and the reports published as one docs
+# bundle, site @userflows/qits-events, version = the bare commit sha, branch riding as artifacts
+# metadata for discovery.
+#
+# NON-GATING BY DESIGN, which is why it is a separate file from ci-post-receive.yml: this run going
+# red must not cost the branch its image while "quality gate before merging" is still a decision to
+# be taken — when it is, these per-commit runs are what the gate reads. One run per push per branch,
+# collapsed to the newest tip under burst.
+#
+# THE STORAGE ID IS `qits-events`, both in the selection above and in the bundle name below, and it
+# is what ci-event-release.yml already selects on (`repository: { exact: qits-events }`). The
+# directory this repository is checked out into is qits-platform-events; the storage id is not, and
+# a bundle named after the directory would be published where nothing looks for it.
+#
+# `user: build`, and NOT a switch inside the script: the suite starts zonky's embedded postgres,
+# initdb refuses to run as root and calls getpwuid, so the step needs a passwd-backed non-root
+# user — maven-base carries one (uid 1001). The step containers are Alpine, which is why BOTH poms
+# that name zonky architectures (events, service) carry the -alpine binaries as a fourth arch:
+# `verify` here is the whole reactor, so the domain module's postgres has to start there too.
+#
+# Quinoa is off (`-Dquarkus.quinoa=false` — the extension's ROOT toggle; `.enabled` is silently
+# ignored and npm still runs): the client is ci-post-receive.yml's business, where the
+# qits-spa-events submodule is initialised and its lockfile origins are swapped against the
+# platform's npm registry, and none of that ritual belongs here — these stories assert nothing about
+# the SPA. It is also what keeps this step from needing the submodule at all: the daemon's clone
+# does not recurse, so service/src/main/webui arrives EMPTY, and an empty directory is the one case
+# Quinoa treats as a misconfiguration rather than as "no client" (application.properties and
+# docker/Dockerfile both say the same thing from their own side). The packaged fast-jar failsafe
+# boots is otherwise exactly what ships.
+#
+# THE TWO IT FLAGS ARE THE OTHER HALF, and they are why this repository does NOT opt its service
+# module back into ITs the way qits-githost does. `skipITs` is true in the root pom and stays true;
+# this module has three integration tests and only one of them belongs to this run:
+#
+#   EventBusBootstrapIT   the userflow — the whole point of this file
+#   PackagedSurfaceIT     half about the CLIENT (the base href at the root, the deep links, the
+#                         fallback that must not swallow a machine path), which the line above
+#                         deliberately does not build
+#   PackagedLogBridgeIT   an OTLP stub receiver and a 30s export deadline per assertion, about the
+#                         telemetry pipe rather than about the bus
+#
+# A blanket `-DskipITs=false` would make this quinoa-less run red on a test that is right, and pay
+# for a log-bridge proof that has nothing to do with these stories. Naming the class keeps the
+# opt-in to this pipeline and to these stories, and keeps the property's own meaning ("run
+# everything") intact for the `native` profile in service/pom.xml that sets it:
+# `-DskipITs=false "-Dit.test=EventBusBootstrapIT"`.
+#
+# NO REPAIR WAS NEEDED to make the new test-scope jar resolve. This repository already carries
+# `.qits-maven-settings.xml` and a `qits-maven` <repositories> entry — qits-auth-core, qits-db-core
+# and qits-arch-rules have always come from the platform registry — and docker/Dockerfile already
+# builds with `--network host` (from ci-post-receive.yml and ci-event-release.yml) and
+# `-s .qits-maven-settings.xml`, so the image builds resolve the test classpath there the same way
+# they already resolved those three. (`-DskipTests` skips test EXECUTION, not test COMPILATION, so
+# qits-userflows is fetched during an image build too; it is small, and its transitive Playwright is
+# a jar, not a browser — nothing downloads Chromium unless a story asks for a Flow, and neither of
+# these does.)
+#
+# ONLY qits-userflows IS NEW. The sibling userflow pipelines also pull qits-service-mock, because
+# their stories stand a recording MockIdp up in front of a service they DIAL. This one dials
+# nobody — qits-events is the far side of every interaction on the platform — so the story's
+# counterparties are a real HTTP client and a real websocket client inside the test JVM.
+#
+# Loop review: this pipeline PUTs a docs bundle and pushes no commit — no cycle. The bundle is
+# published to qits-artifacts and read back by qits-docs, neither of which is this service. The one
+# thing that could genuinely close a loop here is THIS SERVICE'S OWN BUS, and it cannot: the
+# launched artifact is the bus rather than a publisher into one, it carries no qits-eventstream jar
+# at all, and its telemetry is dark by the IT profile's `quarkus.otel.sdk.disabled` override.
+# Publish-if-absent: docs versions are immutable, so 409 is success (the qits-spa-ui-components
+# release file's discipline).
+event: SCMPublishCommit
+when:
+  - repoId: { exact: qits-events }
+    suppressCi: { exact: "false" }
+checkout:
+  branch: branch
+  sha: sha
+steps:
+  - image: qits/build-images/maven-base:latest
+    user: build
+    timeout-seconds: 2400
+    script: |
+      set -eu
+      # The platform registry, exactly as the sibling userflow steps derive it: the pom's default
+      # names a host-published address unreachable from a step container, and the exact-id mirror in
+      # .qits-maven-settings.xml is what passes Maven's HTTP blocker.
+      export QITS_MAVEN_REPOSITORY_URL="$QITS_MAVEN_REGISTRY_URL"
+      ./mvnw -B -ntp -s .qits-maven-settings.xml verify \
+        -Dqits.maven.repository.url="$QITS_MAVEN_REPOSITORY_URL" \
+        -Dquarkus.quinoa=false \
+        -DskipITs=false "-Dit.test=EventBusBootstrapIT"
+
+      # `-C … .` so the story directories are the bundle's roots — nesting one directory deep would
+      # put it in every served URL. The path is service/target/userstories because the stories live
+      # in the one module that packages an artifact to boot.
+      tar -czf userstories.tgz -C service/target/userstories .
+
+      # Branch and commit ride as metadata (the docs store's exact-match discovery keys); the
+      # version is the sha itself, so a bundle URL never changes meaning.
+      status=$(curl -sS -o /tmp/docs-publish.out -w '%{http_code}' \
+        -X PUT --data-binary @userstories.tgz \
+        -H "X-Artifacts-Meta-git.branch.name: $QITS_CI_BRANCH" \
+        -H "X-Artifacts-Meta-git.commit.hash: $QITS_CI_SHA" \
+        -H "X-Artifacts-Meta-git.repository.name: qits-events" \
+        "$QITS_DOCS_URL/@userflows/qits-events/-/$QITS_CI_SHA")
+      case "$status" in
+        201) echo "published userflows for qits-events@$QITS_CI_SHA ($QITS_CI_BRANCH)" ;;
+        409) echo "userflows for qits-events@$QITS_CI_SHA already published — skipping" ;;
+        *)   echo "docs publish failed: HTTP $status"; cat /tmp/docs-publish.out; exit 1 ;;
+      esac
