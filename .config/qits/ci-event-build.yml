@@ -6,7 +6,10 @@
 # that run is non-gating, a red verify must not cost the image.
 event: SCMPublishCommit
 when:
-  - repoId: { exact: qits-events }
+  # repoName, not repoId: since the identity cutover the git host's own coordinate is an opaque
+  # UUID, so a name match belongs on the name. The event echoes the public name the push was
+  # addressed with; a rename updates this line in the same campaign.
+  - repoName: { exact: qits-events-platform-service }
     suppressCi: { exact: "false" }
 checkout:
   branch: branch
@@ -23,19 +26,19 @@ steps:
       # resolve the @qits scope against npmjs.org, where these packages do not exist and never will.
       set -eu
 
-      # The daemon's clone is `--depth 50` and does not recurse, so the qits-spa-events submodule at
+      # The daemon's clone is `--depth 50` and does not recurse, so the qits-events-platform-frontend submodule at
       # service/src/main/webui arrives as an empty directory — and Quinoa fails the image build on
       # exactly that (`No package.json found in Web UI directory`). Initialising it here rather than
       # asking the daemon to clone differently keeps the submodule this repo's business: it is a
       # public GitHub repo needing no credentials, and one shallow fetch.
-      frontend_url="${QITS_CI_REPOSITORY_URL%/*}/qits-spa-events"
-      git -c submodule.qits-spa-events.url="$frontend_url" submodule update --init service/src/main/webui
+      frontend_url="${QITS_CI_REPOSITORY_URL%/*}/qits-events-platform-frontend"
+      git -c submodule.qits-events-platform-frontend.url="$frontend_url" submodule update --init service/src/main/webui
 
       # THE LOCKFILE is the one file this step edits, and npm leaves no alternative. Same problem
-      # and same fix as qits-spa-events' own pipeline — that repo's recipe is where this pattern is
+      # and same fix as qits-events-platform-frontend's own pipeline — that repo's recipe is where this pattern is
       # maintained, and the two should keep matching.
       #
-      # npm pins a full resolved URL per package, and qits-spa-events' lockfile is generated on the
+      # npm pins a full resolved URL per package, and qits-events-platform-frontend's lockfile is generated on the
       # deployment host, so every entry names a localhost port — an address that does not exist in
       # this container. `npm ci` fetches tarballs by that URL and never asks the configured registry
       # for them, so the environment below does not reach them: without this swap the install dies
@@ -65,7 +68,7 @@ steps:
       # 404s. Measured on npm 10.9.4.
       #
       # Every address is derived from the injected env rather than spelled here: no repository
-      # states a deployment's addresses, and the two qits-spa-events does state (localhost:8081 for
+      # states a deployment's addresses, and the two qits-events-platform-frontend does state (localhost:8081 for
       # the @qits scope and localhost:8082 for npmjs, in its .npmrc, for a developer on the host)
       # are the ones being replaced.
       cd service/src/main/webui
@@ -77,7 +80,7 @@ steps:
         -e "s#(\"resolved\": \")https?://[^/\"]+($npm_hosted_path)#\1$npm_hosted_origin\2#" \
         package-lock.json
 
-      # ENVIRONMENT, not a file. qits-spa-events COMMITS an .npmrc (localhost:8081 for @qits and
+      # ENVIRONMENT, not a file. qits-events-platform-frontend COMMITS an .npmrc (localhost:8081 for @qits and
       # localhost:8082 for npmjs, right for a developer on the host), and npm ranks a project .npmrc
       # ABOVE ~/.npmrc — so a `cat > ~/.npmrc` preamble would be written and silently ignored.
       # `npm_config_*` environment outranks both files, so it wins without touching the submodule's
@@ -88,7 +91,7 @@ steps:
 
       # dist/qits-spa-events/browser — the bundle the image build consumes (it is
       # quarkus.quinoa.build-dir in service/src/main/resources/application.properties), and the ONE
-      # artifact this half exists to produce. Lint and test are qits-spa-events' own pipeline's job;
+      # artifact this half exists to produce. Lint and test are qits-events-platform-frontend's own pipeline's job;
       # repeating them here would only make this repo red for someone else's commit.
       npm run build
       cd -

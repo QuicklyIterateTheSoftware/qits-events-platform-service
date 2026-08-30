@@ -16,6 +16,16 @@
 # each consumer's own watermark — so a per-tier bus was also a per-tier wall: a platform service
 # could publish onto one tier's bus only. One bus removes the wall, and the wire alias loses its
 # tier prefix with it: `qits-events`, which is what the eventstream library already defaults to.
+
+# THE NAME THIS DEPLOYS AS, spelled because the repository is renamed and the application is not.
+# Every derivation the deployer makes hangs off this name — the wire alias peers dial, the container
+# it manages, the extras family, the database — so letting it follow the repository would
+# decommission the running service and start a stranger beside it.
+#
+# It is the SHORT name, and always has been: the repository was qits-platform-events while the
+# catalog row, the bus alias every consumer dials (qits.events.url) and the database were qits-events.
+application: qits-events
+
 deployment_target: platform
 
 routes: /events
