@@ -1,4 +1,4 @@
-# qits-events
+# qits-events-platform-service
 
 The **event** context of [qits](https://github.com/QuicklyIterateTheSoftware): a recorded thing that
 happened, kept where the rest of the platform can read it.
@@ -275,9 +275,9 @@ than trusts. Both live under `/events/api`, so `quarkus.quinoa.ignored-path-pref
 
 ## The client
 
-[qits-spa-events](https://github.com/QuicklyIterateTheSoftware/qits-spa-events) — Angular 21,
-standalone components, no SSR — is a submodule at `service/src/main/webui`, which is Quinoa's
-default `web-ui-dir`, so the path is a convention rather than a setting. Its `angular.json` sets
+[qits-events-platform-frontend](https://github.com/QuicklyIterateTheSoftware/qits-events-platform-frontend)
+— Angular 21, standalone components, no SSR — is a submodule at `service/src/main/webui`, which is
+Quinoa's default `web-ui-dir`, so the path is a convention rather than a setting. Its `angular.json` sets
 `baseHref` to `"/"`, because the client owns the root of this host — so the client spells no segment
 at all, and there is nothing left for it to disagree with.
 

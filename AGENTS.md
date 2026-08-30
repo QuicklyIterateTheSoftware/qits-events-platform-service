@@ -1,4 +1,4 @@
-# qits-events — working notes
+# qits-events-platform-service — working notes
 
 Read `README.md` first: it defines the boundary and lists the routes. This file is the working
 conventions on top of it.
@@ -108,9 +108,9 @@ facts about that key, all measured on sibling services:
 
 The segment itself is spelled in **four** places that move together: `quarkus.quinoa.ui-root-path`,
 `quarkus.rest.path`, `quarkus.http.non-application-root-path`, and the client's `baseHref` in
-qits-spa-events' `angular.json` — the fourth in another repository, where no build here can check
-it. A `baseHref` that disagrees yields a page that loads and then fetches its own JavaScript from
-the wrong place, and no server-side test can see it.
+qits-events-platform-frontend's `angular.json` — the fourth in another repository, where no build
+here can check it. A `baseHref` that disagrees yields a page that loads and then fetches its own
+JavaScript from the wrong place, and no server-side test can see it.
 
 ## Authentication
 
@@ -134,7 +134,7 @@ never takes. That is exactly how the bug ran unseen in qits-projects: it shipped
 `SecurityIdentity` with no mechanism behind it, every recorded principal was null, and the
 annotation went on passing the whole time.
 
-Do not lift `events/security` into a shared `libs/qits-auth`. Every repo builds from a clone of
+Do not lift `events/security` into a shared `qits-auth` lib. Every repo builds from a clone of
 itself alone, so ~115 lines duplicated per service is cheaper than a jar that has to travel to all of
 them; the duplication is the decision, not an oversight.
 
@@ -315,8 +315,8 @@ when the platform's Quarkus passes the version a release is built against.
 **The two platform jars, and the three files they made this repo grow.** `qits-db-core` is
 **runtime** scope in `events/`, beside the `jdbc.driver` line that is the only thing naming it;
 `qits-arch-rules` is **test** scope in `service/`, whose classpath is the deployable's whole config.
-Both are published by qits-integrations-quarkus and version-pinned by a property each in the root
-pom. Getting them into an image build took the qits-deployments arrangement, unchanged: a
+Both are published by qits-integrations-quarkus-javalib and version-pinned by a property each in the
+root pom. Getting them into an image build took the qits-deployments arrangement, unchanged: a
 `<repositories>` entry with the id `qits-maven`, `.qits-maven-settings.xml` mirroring exactly that id
 onto `$QITS_MAVEN_REPOSITORY_URL` (an exact id match is what gets past Maven's `external:http:*`
 blocker), and a `--build-arg` in `.config/qits/ci-post-receive.yml` deriving the address from
@@ -416,7 +416,8 @@ service as every diagram names it, plus the label rules) and `StoryStream` (the 
 holding a socket has to do).
 
 - **Browserless.** Every story takes an `Interactions` (and a `Network`) and no `Flow`, so
-  qits-userflows' transitive Playwright never launches anything and no Chromium is needed anywhere.
+  qits-userflows-javalib's transitive Playwright never launches anything and no Chromium is needed
+  anywhere.
   Keep it that way — the pipeline step has no browser in it.
 - **ONE `@TestProfile` for the whole catalogue**, `stories/support/StoryProfile`, `EventBusBootstrapIT`
   included. A `@TestProfile` is what failsafe launches a process for, so two profiles would be two
@@ -514,8 +515,9 @@ holding a socket has to do).
   - **Fan-out across two instances**, because there is no such thing: subscriptions are in-memory and
     single-process by design, and a second instance would need a real broker. `DisjointInterestsIT`
     is the story that would grow when that arrives.
-  - **The client.** Quinoa is off in this run and the qits-spa-events submodule is empty in a step
-    container, so nothing here asserts anything about `/events/`. That is `PackagedSurfaceIT`'s job.
+  - **The client.** Quinoa is off in this run and the qits-events-platform-frontend submodule is
+    empty in a step container, so nothing here asserts anything about `/events/`. That is
+    `PackagedSurfaceIT`'s job.
   - **This service's own telemetry export**, per the profile note above.
   - **`?attr=` against a payload no canonical publisher wrote.** The filter leans on
     `CanonicalJson`'s guarantee; a hand-written payload with unsorted keys or non-string values is
