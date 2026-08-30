@@ -1,7 +1,12 @@
 # The per-commit userflow run: `mvn verify` at the pushed commit — which regenerates
-# service/target/userstories/ through EventBusBootstrapIT — and the reports published as one docs
-# bundle, site @userflows/qits-events, version = the bare commit sha, branch riding as artifacts
-# metadata for discovery.
+# service/target/userstories/ through the story catalogue (EIGHT stories in six categories, the
+# classes named below) — and the reports published as one docs bundle, site @userflows/qits-events,
+# version = the bare commit sha, branch riding as artifacts metadata for discovery.
+#
+# THE CLASS LIST IS THE PIPELINE'S CONTRACT WITH THE CATALOGUE. A new story class that is not added
+# here in the same commit never runs in this pipeline, and nothing anywhere says so — the run stays
+# green because `-Dit.test` names what it names. AGENTS.md carries the same instruction beside the
+# table of stories.
 #
 # NON-GATING BY DESIGN, which is why it is a separate file from ci-post-receive.yml: this run going
 # red must not cost the branch its image while "quality gate before merging" is still a decision to
@@ -31,9 +36,13 @@
 #
 # THE TWO IT FLAGS ARE THE OTHER HALF, and they are why this repository does NOT opt its service
 # module back into ITs the way qits-githost does. `skipITs` is true in the root pom and stays true;
-# this module has three integration tests and only one of them belongs to this run:
+# this module has eight integration tests and two of them do not belong to this run:
 #
-#   EventBusBootstrapIT   the userflow — the whole point of this file
+#   EventBusBootstrapIT + the five story classes under …/events/stories/
+#                         the userflows — the whole point of this file. They share ONE @TestProfile
+#                         (stories/support/StoryProfile), so failsafe launches the artifact once for
+#                         all six classes and every story runs against one bus, one database and one
+#                         in-memory subscription registry.
 #   PackagedSurfaceIT     half about the CLIENT (the base href at the root, the deep links, the
 #                         fallback that must not swallow a machine path), which the line above
 #                         deliberately does not build
@@ -41,10 +50,12 @@
 #                         telemetry pipe rather than about the bus
 #
 # A blanket `-DskipITs=false` would make this quinoa-less run red on a test that is right, and pay
-# for a log-bridge proof that has nothing to do with these stories. Naming the class keeps the
+# for a log-bridge proof that has nothing to do with these stories. Naming the classes keeps the
 # opt-in to this pipeline and to these stories, and keeps the property's own meaning ("run
-# everything") intact for the `native` profile in service/pom.xml that sets it:
-# `-DskipITs=false "-Dit.test=EventBusBootstrapIT"`.
+# everything") intact for the `native` profile in service/pom.xml that sets it.
+#
+# The comma list also runs the module's UNIT suites (`-Dit.test` selects failsafe's classes and says
+# nothing about surefire's), which is the gate these stories are meant to sit behind anyway.
 #
 # NO REPAIR WAS NEEDED to make the new test-scope jar resolve. This repository already carries
 # `.qits-maven-settings.xml` and a `qits-maven` <repositories> entry — qits-auth-core, qits-db-core
@@ -56,10 +67,11 @@
 # a jar, not a browser — nothing downloads Chromium unless a story asks for a Flow, and neither of
 # these does.)
 #
-# ONLY qits-userflows IS NEW. The sibling userflow pipelines also pull qits-service-mock, because
-# their stories stand a recording MockIdp up in front of a service they DIAL. This one dials
-# nobody — qits-events is the far side of every interaction on the platform — so the story's
-# counterparties are a real HTTP client and a real websocket client inside the test JVM.
+# ONLY qits-userflows IS ON THIS STEP'S CLASSPATH BEYOND THE ORDINARY SUITE. The sibling userflow
+# pipelines also pull qits-service-mock, because their stories stand a recording MockIdp up in front
+# of a service they DIAL. This one dials nobody — qits-events is the far side of every interaction
+# on the platform — so the stories' counterparties are a real HTTP client and a real websocket
+# client inside the test JVM, and there is no NetworkCapture.source anywhere in the catalogue.
 #
 # Loop review: this pipeline PUTs a docs bundle and pushes no commit — no cycle. The bundle is
 # published to qits-artifacts and read back by qits-docs, neither of which is this service. The one
@@ -88,7 +100,8 @@ steps:
       ./mvnw -B -ntp -s .qits-maven-settings.xml verify \
         -Dqits.maven.repository.url="$QITS_MAVEN_REPOSITORY_URL" \
         -Dquarkus.quinoa=false \
-        -DskipITs=false "-Dit.test=EventBusBootstrapIT"
+        -DskipITs=false \
+        "-Dit.test=EventBusBootstrapIT,DisjointInterestsIT,SubscriptionFramesIT,ReplayFromTheLogIT,QuietBusIT,OperatorInvestigationIT"
 
       # `-C … .` so the story directories are the bundle's roots — nesting one directory deep would
       # put it in every served URL. The path is service/target/userstories because the stories live

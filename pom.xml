@@ -46,19 +46,23 @@
         <qits.db-core.version>2026.817.175344</qits.db-core.version>
         <qits.arch-rules.version>2026.817.175344</qits.arch-rules.version>
         <qits.auth-core.version>2026.817.175344</qits.auth-core.version>
-        <!-- The user-story framework (TEST SCOPE ONLY): EventBusBootstrapIT is a userflow, so a
-             `mvn verify -DskipITs=false` also regenerates service/target/userstories/ — the bus's
-             own round-trip story as documentation, sequence diagram included. Published out of
-             libs/qits-userflows into the same platform Maven repository the three jars above come
-             from, so the <repositories> block below already reaches it.
+        <!-- The user-story framework (TEST SCOPE ONLY). The story catalogue lives in
+             service/src/test/java/…/events/stories/ (plus EventBusBootstrapIT beside the API it
+             tells), so a `mvn verify -DskipITs=false -Dit.test=<the classes>` regenerates
+             service/target/userstories/ — eight stories in six categories, each with its observed
+             network diagram. Published out of libs/qits-userflows into the same platform Maven
+             repository the three jars above come from, so the <repositories> block below already
+             reaches it. This pin also carries NetworkTaps, the shipped RestAssured tap the
+             catalogue installs instead of the per-repo StoryNetworkFilter copy four
+             repositories had been carrying.
 
              There is deliberately NO qits-service-mock here, unlike the userflow poms of
              qits-githost and qits-platform-deployments. Those two stand a recording MockIdp up
              because their stories are about a service they DIAL; this one dials nobody. qits-events
-             is the far side of every interaction on the platform, so the story's counterparties are
+             is the far side of every interaction on the platform, so the stories' counterparties are
              a real HTTP client and a real websocket client in the test JVM, and a mock would be a
              stand-in for nothing. -->
-        <qits.userflows.version>2026.828.153026</qits.userflows.version>
+        <qits.userflows.version>2026.829.201516</qits.userflows.version>
         <qits.maven.repository.url>http://registry.dev.localhost:8080/artifacts/maven/maven</qits.maven.repository.url>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
