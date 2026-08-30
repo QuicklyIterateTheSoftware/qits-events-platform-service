@@ -22,10 +22,12 @@ and it is the smallest form of it: neither has a copy that could live here inste
 right because the platform reference states it loosely:
 
 - `./mvnw test` — needs **neither node nor the webui submodule**, and no docker either. Quinoa is
-  disabled by default in test mode (it says so: `Quinoa is disabled by default in tests.`), so all
-  113 `@QuarkusTest`s pass against an empty `webui/` on a machine with no node at all — the stream
+  disabled by default in test mode (it says so: `Quinoa is disabled by default in tests.`), so the
+  whole unit suite passes against an empty `webui/` on a machine with no node at all — the stream
   socket included, since a websocket is not a Quinoa concern. The store they run on is a real
-  postgres the suite spawns itself from a Maven artifact. Measured, not assumed.
+  postgres the suite spawns itself from a Maven artifact. Measured, not assumed: 125 tests as of
+  2026-08-30 (49 in `events`, 76 in `service`), a count deliberately not restated per class here
+  because it drifts with every added case and this file is not the place to keep it in step.
 - `./mvnw verify` — runs `package` on its way to failsafe, and `package` is where Quinoa augments.
   So verify needs **both**, and against an uninitialised submodule it fails with
   `No package.json found in Web UI directory: 'src/main/webui'`. `docs/project-setup-quinoa-angular.md`
@@ -361,8 +363,10 @@ The three move together — a new platform jar needs none of them again.
   first, and only a boot caught it. `<packaging>quarkus</packaging>` is what closes that hole: it
   binds the goals to the lifecycle, and removing `<extensions>true</extensions>` now fails with
   "Unknown packaging: quarkus" rather than quietly building nothing.
-- **`PackagedSurfaceIT` is the only test that runs against the artifact, and the only one that ever
-  sees the client.** Quinoa is disabled in test mode, so no `@QuarkusTest` here has a client in it at
+- **`PackagedSurfaceIT` is the only test that ever sees the client**, and one of three *kinds* of
+  test that run against the artifact (the other two are `PackagedLogBridgeIT` and the six userflow
+  classes below, which share one profile and therefore one launch). Quinoa is disabled in test mode,
+  so no `@QuarkusTest` here has a client in it at
   all — a unit test asserting anything about `/events/` would pass against a process serving nothing.
   Every `@QuarkusTest` also augments in the build JVM, with the whole classpath present, reflection
   unrestricted and a datasource handed to it by a config source; a native image has none of those.
@@ -390,23 +394,101 @@ The three move together — a new platform jar needs none of them again.
 
 ### The userflow stories
 
-`EventBusBootstrapIT` is the third packaged-artifact test and the first **userflow**: two
-`@UserStory` methods that prove the bus's round trip and double as its documentation, emitted under
-`service/target/userstories/` with the interactions drawn as a mermaid sequence diagram. Run them:
+**Eight stories in six categories**, emitted under `service/target/userstories/` as JSON + markdown +
+HTML with a mermaid **network diagram** beside the steps. They are the bus's documentation and its
+packaged-artifact proof at once. Run the whole catalogue:
 
-    ./mvnw -B -ntp verify -Dquarkus.quinoa=false -DskipITs=false "-Dit.test=EventBusBootstrapIT"
+    ./mvnw -B -ntp verify -Dquarkus.quinoa=false -DskipITs=false \
+      "-Dit.test=EventBusBootstrapIT,DisjointInterestsIT,SubscriptionFramesIT,ReplayFromTheLogIT,QuietBusIT,OperatorInvestigationIT"
 
-- **Browserless.** Each story takes an `Interactions` and no `Flow`, so qits-userflows' transitive
-  Playwright never launches anything and no Chromium is needed anywhere. Keep it that way — the
-  pipeline step has no browser in it.
-- **What only the artifact can show.** The doors (`@RolesAllowed("qits:system")` on publish,
-  `qits:admin` on the reads, both on the socket) exist *only* in a `prod` launch: under
-  `@QuarkusTest` qits-auth-core's `%test` dev-user hands every request all four platform roles
-  before an annotation is consulted, and `ForwardAuthMechanism` is `LaunchMode.NORMAL`-guarded on
-  top of that. The stream's door is on the **HTTP upgrade** (3.34's `SecurityHttpUpgradeCheck`), so
-  an unauthorised consumer is refused the handshake rather than connected and ignored — which is why
-  `FakeSubscriber.dial` grew a headers overload, and why the unauthenticated dial *throwing* is the
-  assertable form of that door.
+| class                                     | category       | what it settles                                                  |
+| ----------------------------------------- | -------------- | ---------------------------------------------------------------- |
+| `api/EventBusBootstrapIT` (2 stories)     | `event-bus`    | the round trip: live delivery, a safe retry, catch-up from a watermark — and the refusals and doors beside it |
+| `stories/fanout/DisjointInterestsIT`      | `fan-out`      | three connections, two subscriptions: an event reaches only who asked, and a connection that named nothing is told nothing |
+| `stories/subscription/SubscriptionFramesIT` | `subscription` | one long-lived connection: subscribe REPLACES, an unreadable frame costs the frame, `"*"` is everything, unusable entries are ignored |
+| `stories/replay/ReplayFromTheLogIT`       | `replay`       | replay from zero and from a chosen offset, over the LOG's route — paging through a tie, and the null `nextCursor` at the head |
+| `stories/silence/QuietBusIT` (2 stories)  | `silence`      | both write paths announce; nothing this bus refuses, replays, reads or removes is pushed to anybody |
+| `stories/operations/OperatorInvestigationIT` | `operations` | the reading half: the vocabulary, three filters with three different costs, a chain walked both ways, and the read doors that are not one door |
+
+`stories/support/` holds the whole of the wiring and is where to read first —
+`StoryProfile` (the one launched process), `StoryNetwork` (the taps, in one call), `StoryTarget` (the
+service as every diagram names it, plus the label rules) and `StoryStream` (the four things a story
+holding a socket has to do).
+
+- **Browserless.** Every story takes an `Interactions` (and a `Network`) and no `Flow`, so
+  qits-userflows' transitive Playwright never launches anything and no Chromium is needed anywhere.
+  Keep it that way — the pipeline step has no browser in it.
+- **ONE `@TestProfile` for the whole catalogue**, `stories/support/StoryProfile`, `EventBusBootstrapIT`
+  included. A `@TestProfile` is what failsafe launches a process for, so two profiles would be two
+  buses — and on *this* service that is the sharpest form of the problem, because the subscription
+  table is in-memory and single-process: a subscriber connected to one launch is invisible to a
+  publish that reached the other. One process, one database (`events_userflows_it`), one registry.
+- **The diagram is OBSERVED, never narrated, and this service needs TWO taps for it.** `Interactions`
+  records notes and nothing else — there is no `happened()` any more, and a story that described an
+  edge in prose would be describing rather than proving. The **shipped** tap
+  (`NetworkTaps.restAssured`, since qits-userflows 2026.829) observes every HTTP request RestAssured
+  sends into this process and labels it with the status this service answered; the per-repo
+  `StoryNetworkFilter` copy four repositories had been carrying is **not** in this tree, and must not
+  come back. A filter **cannot see a websocket at all**, so the
+  dial, the refused upgrade and every pushed frame are reported to `NetworkCapture` from inside
+  `stream/FakeSubscriber`. Read that class's comment before touching either. Six rules follow:
+  - **Name the actor before you call.** A publisher's outbox, a durable consumer, a person's session
+    and a caller the edge never named reach the same routes and differ by two headers on the wire.
+    `NetworkCapture.actor(...)` is what tells them apart, and the framework resets it to a default at
+    every story start, so nothing leaks between stories. `FakeSubscriber` reads it **once, at the
+    dial**, and keeps it — a frame arrives on a Vert.x event-loop thread at a moment the story does
+    not control. Actor names are shared through `StoryTarget` so one caller is one node on the
+    aggregate diagram: `a person's session` reads the log in one story and is refused a publish in
+    another, and two spellings would draw two people.
+  - **Direction is who initiated.** The dial is a `socket` edge into this service; a pushed frame is
+    an `event` edge back out, because the server decided to send it. One connection, two arrows, and
+    that is what makes live delivery read as delivery rather than as a reply.
+  - **Never put a distinction in a label.** Edges dedupe on the whole `(kind, from, to, label)`
+    quadruple, so an operator's six differently-filtered reads are one arrow and however many frames
+    arrived are one arrow — which is exactly what makes a nondeterministic frame count assertable.
+    **Query strings never reach a label at all** (`URI.getPath()`), and on this service that rule has
+    the widest reach anywhere on the platform, because the entire read model *is* query parameters.
+    It is deliberate: a cursor is run-local and would move a story's `networkHash` every run.
+    Distinctions go in the actor, the status and `Interactions.note()`.
+  - **Nothing generated may reach the report.** A note never interpolates an id (a note enters the
+    `definitionHash`); a label always scrubs one. Every story ends with `assertNotLeaked` over every
+    UUID it minted — this repo has no bearer to protect, so what that assertion protects here is the
+    hashes, and a leak is precisely the symptom of one that will never settle. There is **no
+    `labelNormalizer` job** in this catalogue and that is checked rather than assumed: every
+    run-local value on this surface is a UUID, which `Labels.scrub` already rewrites in both
+    positions it can appear. `StoryNetwork.install()` claims the single JVM slot anyway, and
+    `StoryTarget.served(...)` routes an assertion's expected label through the same function, so the
+    two sides move together if it is ever given one.
+  - **An absence is an assertion, and a diagram-level absence needs a tap that COULD have seen it.**
+    "The replay pushed nothing" as a queue assertion is cheap. As a claim on the diagram it costs a
+    live connection — which is why `QuietBusIT` is **two stories on one connection**: the first
+    proves a `["*"]` subscriber is being pushed to, the second does everything else the bus can do on
+    that same socket and states `assertNoEdgesTo("a subscriber of everything")`. Do not close that
+    connection between them and do not reorder them; `@TestMethodOrder` there is load-bearing, which
+    is the one place in this catalogue that is true. `DisjointInterestsIT` makes the same shape of
+    claim about a tab that named nothing, evidenced by two sibling connections receiving at that
+    moment. A *refused* dial is the opposite case and IS an edge — the client sees it fail, so it is
+    observed rather than claimed; what it cannot see is why, which is why the label says `-> refused`
+    and the assertion says which.
+  - **`@AfterAll` pins the graph**: `assertEdge` per edge for presence, `assertEdgeCount` for the
+    absence half, `assertOnlyEdgesFrom` for the initiator set, and `assertNoEdgesTo` where a story
+    earns it. A stray edge — a probe the tap's skip missed, a frame pushed to a caller no story named
+    — is invisible to presence checks alone.
+- **`assertNoEdgesFrom(SERVICE)` appears NOWHERE here, and that is a decision.** It would be false:
+  qits-events answers nothing without its store. Every story declares the `jdbc` edge to
+  `postgres qits_events` where it incurs it, with a label saying what *that* story asked the store
+  for — and a declared edge counts in `assertNoEdgesFrom`, as it should, because the claim is
+  "nothing left this process" and something did. The claim worth making on a bus is directional:
+  nothing left this process *towards that consumer*.
+- **What only the artifact can show.** The doors exist *only* in a `prod` launch: under `@QuarkusTest`
+  qits-auth-core's `%test` dev-user hands every request all four platform roles before an annotation
+  is consulted, and `ForwardAuthMechanism` is `LaunchMode.NORMAL`-guarded on top of that. Three of
+  them are stories here rather than footnotes — the publish door (`qits:system`), the socket's door
+  on the **HTTP upgrade** (3.34's `SecurityHttpUpgradeCheck`, so an unauthorised consumer is refused
+  the handshake rather than connected and ignored, which is why `FakeSubscriber.dial` has a headers
+  overload and why the unauthenticated dial *throwing* is the assertable form of it), and the read
+  asymmetry: `GET /events/api/events` takes either role because a catch-up consumer is a machine
+  reading the log, while `/names` and `GET /{id}` take `qits:admin` alone.
 - **A consequence worth knowing before you run the others.** By reading rather than by measurement:
   `PackagedSurfaceIT` drives `/events/api/*` and dials `/events/stream` with **no** `X-Qits-User`,
   and it has not been touched since the roles landed (`feat: protect event APIs and streams`,
@@ -414,18 +496,42 @@ The three move together — a new platform jar needs none of them again.
   boundary. If a `-Dnative` build or a blanket `-DskipITs=false` comes back 401 there, that is the
   cause and the fix is the two headers, not the roles.
 - **No mock on the far side, deliberately.** qits-events dials nobody — its callers are the
-  qits-eventstream jars inside every sibling service — so the story's counterparties are a real
+  qits-eventstream jars inside every sibling service — so a story's counterparties are a real
   rest-assured client and a real `FakeSubscriber` socket in the test JVM, and this repo pulls
-  `qits-userflows` without `qits-service-mock`. The only startup dial-out to neutralise is the OTel
-  exporter, which the IT's profile darkens with `quarkus.otel.sdk.disabled=true`.
-- **The two stories share one launched process and one log**, so neither may depend on the other
-  having run. They are kept apart by *vocabulary*: every read filters on `?name=`, and the stories
-  name different events. Do not add an assertion that counts the whole log.
+  `qits-userflows` without `qits-service-mock`. There is no `NetworkCapture.source` anywhere either:
+  a source is for a *cumulative* recording attributed by a cursor, and every edge here is `observe`d
+  at the moment the call returns. Two simplifications follow that the sibling catalogues cannot have
+  — **story order is not load-bearing** for attribution, and **no story has to await a far side**.
+  The only dial-out to neutralise is the OTel exporter, which `StoryProfile` darkens with
+  `quarkus.otel.sdk.disabled=true`; no story covers this service's self-export and none claims its
+  absence either, since that would be a claim about the profile.
+- **The stories share one launched process and one log**, so none may depend on another having run.
+  They are kept apart by *vocabulary*: **every class owns its own event names and every read filters
+  on `?name=`**. Do not add an assertion that counts the whole log. The launched process does not
+  clean its schema — `flyway.clean-at-start` lives in the `@QuarkusTest` suite's test resources, not
+  in the jar — so the vocabulary discipline is the whole of the isolation.
+- **What is out of reach, stated rather than papered over.**
+  - **Fan-out across two instances**, because there is no such thing: subscriptions are in-memory and
+    single-process by design, and a second instance would need a real broker. `DisjointInterestsIT`
+    is the story that would grow when that arrives.
+  - **The client.** Quinoa is off in this run and the qits-spa-events submodule is empty in a step
+    container, so nothing here asserts anything about `/events/`. That is `PackagedSurfaceIT`'s job.
+  - **This service's own telemetry export**, per the profile note above.
+  - **`?attr=` against a payload no canonical publisher wrote.** The filter leans on
+    `CanonicalJson`'s guarantee; a hand-written payload with unsorted keys or non-string values is
+    outside what it promises, and the story says so rather than testing a shape the platform does not
+    produce.
+- **Two things were measured here rather than assumed**, and both would have been wrong from memory:
+  `POST /events/api/events` answers **200**, not 201 — it returns the created row rather than a
+  Location, and the `PUT` beside it really does answer 201, so the two writes are different shapes
+  and not one route wearing two verbs. And a **`DELETE` announces nothing**: only a *create*
+  broadcasts, so a removal is invisible to every subscriber and never rewinds a watermark.
 - `.config/qits/ci-event-userflows.yml` publishes the reports per commit as the docs bundle
   `@userflows/qits-events` (the **storage id**, the same one `ci-event-release.yml` selects on),
   version = the bare sha. It is **non-gating**, runs `-Dquarkus.quinoa=false`, and opts into ITs
   **by name** so the SPA-asserting `PackagedSurfaceIT` and the OTLP-stub `PackagedLogBridgeIT` stay
-  out of a run that is about neither.
+  out of a run that is about neither. **Every new story class goes into that list in the same
+  commit**, or it never runs in the pipeline and nothing says so.
 
 ## Application logs leave over OTLP
 

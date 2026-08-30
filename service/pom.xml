@@ -7,7 +7,7 @@
     <parent>
         <groupId>eu.wohlben.qits</groupId>
         <artifactId>qits-events</artifactId>
-        <version>2026.829.140452</version>
+        <version>2026.830.31652</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -132,11 +132,16 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <!-- The user-story framework: EventBusBootstrapIT is written as @UserStory methods, so
-                 the bus's packaged round-trip proof doubles as documentation — steps, interactions
-                 and a sequence diagram emitted under target/userstories/. Both stories are
-                 browserless (an Interactions parameter and no Flow), so the transitive Playwright
-                 never launches anything and this needs no Chromium anywhere. -->
+            <!-- The user-story framework: the story catalogue under
+                 src/test/java/…/events/stories/ (plus EventBusBootstrapIT beside the API it tells)
+                 is written as @UserStory methods, so the bus's packaged proofs double as
+                 documentation — steps, notes and an OBSERVED network diagram emitted under
+                 target/userstories/. It ships the RestAssured tap those stories install
+                 (NetworkTaps), and it is also what stream/FakeSubscriber reports its dials, its
+                 refused upgrades and its pushed frames to: a filter cannot see a websocket, so the
+                 socket half of the diagram is tapped inside that client. Every story is browserless
+                 (an Interactions/Network parameter and no Flow), so the transitive Playwright never
+                 launches anything and this needs no Chromium anywhere. -->
             <groupId>${project.groupId}</groupId>
             <artifactId>qits-userflows</artifactId>
             <scope>test</scope>
