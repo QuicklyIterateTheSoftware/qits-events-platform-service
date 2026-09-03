@@ -43,9 +43,9 @@
              by qits-integrations-quarkus. The url is a property so the
              image build can point it at the address the builder container can actually reach —
              see docker/Dockerfile and .qits-maven-settings.xml. -->
-        <qits.db-core.version>2026.817.175344</qits.db-core.version>
-        <qits.arch-rules.version>2026.817.175344</qits.arch-rules.version>
-        <qits.auth-core.version>2026.817.175344</qits.auth-core.version>
+        <qits.db-core.version>2026.902.53026</qits.db-core.version>
+        <qits.arch-rules.version>2026.902.53026</qits.arch-rules.version>
+        <qits.auth-core.version>2026.902.53026</qits.auth-core.version>
         <!-- The user-story framework (TEST SCOPE ONLY). The story catalogue lives in
              service/src/test/java/…/events/stories/ (plus EventBusBootstrapIT beside the API it
              tells), so a `mvn verify -DskipITs=false -Dit.test=<the classes>` regenerates
@@ -62,7 +62,7 @@
              is the far side of every interaction on the platform, so the stories' counterparties are
              a real HTTP client and a real websocket client in the test JVM, and a mock would be a
              stand-in for nothing. -->
-        <qits.userflows.version>2026.829.201516</qits.userflows.version>
+        <qits.userflows.version>2026.902.53027</qits.userflows.version>
         <qits.maven.repository.url>http://registry.dev.localhost:8080/artifacts/maven/maven</qits.maven.repository.url>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
