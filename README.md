@@ -304,7 +304,7 @@ That gives this repo a clone rule with two halves:
 The client depends on `@qits/ui-components`, which exists only on the platform's own npm registry —
 reachable from a developer's host (its committed `.npmrc` names `localhost:8081`) and from
 `qits-net`, and from **no address inside a docker build**. So the image build does not build the
-client: `.config/qits/ci-post-receive.yml` builds it in a step container on `qits-net` and
+client: the pipelines under `.config/qits/` build it in a step container on `qits-net` and
 `docker/Dockerfile` packages the bundle it was handed. Every SPA-serving service in the platform
 does this, for the same reason.
 

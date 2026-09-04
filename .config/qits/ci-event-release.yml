@@ -2,8 +2,8 @@
 # released VERSION.
 #
 # THE SELECTION NAMES THIS REPOSITORY, WHICH READS LIKE A LOOP AND IS NOT. `SCMRelease` says only
-# "source control has this version" — qits-workspaces publishes it the instant the release push is
-# accepted, and nothing in this file publishes it. So a repository listening for its own SCMRelease
+# "source control has this version" — qits-projects' Auto Release publishes it the instant the
+# release tag is stamped, and nothing in this file publishes it. So a repository listening for its own SCMRelease
 # is exactly the release pipeline the split-release design asks each repository to own: the SCM half
 # fires, this half builds the tagged commit and pushes it, and qits-ci turns the green run into one
 # `SoftwareRelease` per entry under `artifacts:` below. The event that could loop is
@@ -25,10 +25,10 @@
 # `qits/<application>` and the reader supplies its own host, exactly as the push below composes one
 # from environment.
 #
-# THE BUILD BELOW IS ci-post-receive.yml's, AND THE TWO MUST STAY MATCHED. Both pipelines publish
-# the same image content under two coordinates, so a fix to one build belongs in the other. That
-# file is where the two halves, the submodule fetch, the lockfile origin swap and the
-# `npm_config_*` environment are explained at length; this one carries the short form and points
+# THE BUILD BELOW IS ci-event-release-request.yml's GATING STEP, AND THE TWO MUST STAY MATCHED. The
+# QA pipeline proves the fold with this same build and does not push, so a fix to one build belongs
+# in the other. That file is where the two halves, the submodule fetch, the lockfile origin swap and
+# the `npm_config_*` environment are explained at length; this one carries the short form and points
 # there rather than keeping a second copy of the reasoning to drift.
 #
 # THE CLIENT IS PACKAGED, NOT INSTALLED BY THE IMAGE BUILD. service/src/main/webui is the
@@ -36,7 +36,7 @@
 # and can reach the platform's npm registry — a RUN inside a docker build cannot, by any address.
 # The Dockerfile's builder stage only packages the bundle this half produced.
 #
-# THIS FILE IS INERT UNTIL qits-workspaces PUBLISHES SCMRelease, and it lands first on purpose: the
+# THIS FILE IS INERT UNTIL AUTO RELEASE PUBLISHES SCMRelease, and it lands first on purpose: the
 # bus is at-most-once with no catch-up and no replay, so a trigger file must be in place before the
 # event it selects exists. The other order loses a release and looks like a train that quietly did
 # not roll.
@@ -46,7 +46,7 @@ when:
 artifacts:
   - { type: docker, name: qits/qits-events }
 steps:
-    # node-docker-base, the image ci-post-receive.yml already uses: node, npm and git for half one,
+    # node-docker-base, the image ci-event-release-request.yml already uses: node, npm and git for half one,
     # the docker CLI for half two — and node is also what reads the event payload, which is JSON.
   - image: qits/build-images/node-docker-base:latest
     docker: true
@@ -85,7 +85,7 @@ steps:
       # --- half one: the bundle -----------------------------------------------------------------
       # The daemon's clone is shallow and does not recurse, so the qits-events-platform-frontend submodule
       # arrives as an empty directory and Quinoa fails the image build on it. See
-      # ci-post-receive.yml for why the lockfile origins are rewritten and why the registry is
+      # ci-event-release-request.yml for why the lockfile origins are rewritten and why the registry is
       # passed as environment rather than as a file — that repo's committed .npmrc outranks any
       # ~/.npmrc this step could write.
       frontend_url="${QITS_CI_REPOSITORY_URL%/*}/qits-events-platform-frontend"
@@ -95,7 +95,7 @@ steps:
       # TWO SERVICES since the byte-plane split, so the swap reads the PATH: an entry under the
       # hosted registry's own pathname ($QITS_NPM_REGISTRY_URL's, /artifacts/npm/npm/) gets the
       # hosted origin and everything else gets the proxy's, and the broad expression has to run
-      # before the narrow one. ci-post-receive.yml carries the full reasoning.
+      # before the narrow one. ci-event-release-request.yml carries the full reasoning.
       npm_hosted_origin=$(node -p 'new URL(process.env.QITS_NPM_REGISTRY_URL).origin')
       npm_proxy_origin=$(node -p 'new URL(process.env.QITS_NPM_PROXY_URL).origin')
       npm_hosted_path=$(node -p 'new URL(process.env.QITS_NPM_REGISTRY_URL).pathname')
@@ -112,7 +112,7 @@ steps:
       cd -
 
       # --- half two: the image ------------------------------------------------------------------
-      # Same doctrine as ci-post-receive.yml: --network host (buildkit refuses
+      # Same doctrine as ci-event-release-request.yml: --network host (buildkit refuses
       # custom networks) and the maven address derived from the host registry.
       # The 2026.811.171736 release run died without these once qits-db-core
       # became a dependency.
@@ -120,7 +120,7 @@ steps:
       # recorded in the history of a pullable image. The launcher injects the run's commissioned idp
       # client as $QITS_COMMISSIONED_CLIENT_ID/$QITS_COMMISSIONED_CLIENT_SECRET. Unconditional — a
       # missing env source is NOT a buildx error, measured on v0.36.1 — so it is inert until a run
-      # carries the pair. ci-post-receive.yml has the same two flags; keep them matched.
+      # carries the pair. ci-event-release-request.yml has the same two flags; keep them matched.
       ref="$QITS_REGISTRY/$QITS_IMAGE_REPOSITORY/qits-events:$version"
       docker build --network host \
         --build-arg QITS_MAVEN_REPOSITORY_URL="http://$QITS_REGISTRY/artifacts/maven/maven" \
@@ -139,8 +139,8 @@ steps:
       # `SoftwareRelease` only for a green run, so ordering is the whole guarantee: no consumer is
       # ever told about a version whose bill of materials is missing. A failed PUT fails the release
       # ON PURPOSE — the store being down is not a reason to announce a version nobody can audit.
-      # Only THIS pipeline uploads one: ci-post-receive.yml's sha push announces no release, so it
-      # owes no document.
+      # Only THIS pipeline uploads one: the QA pipeline's fold build pushes nothing and announces
+      # no release, so it owes no document.
       #
       # The second `docker build` reaches the Dockerfile's `sbom` stage — a `FROM scratch` holding
       # only the service module's CycloneDX document, exported with `--output` instead of pushed.

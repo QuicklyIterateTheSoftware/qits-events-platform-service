@@ -22,7 +22,8 @@
 # (docs/project-setup-quinoa-angular.md in the qits superproject), which excludes the client's dist/
 # as well: here dist/ is the PAYLOAD. qits-spa-events depends on @qits/ui-components, which exists
 # only on the platform's own npm registry, reachable from no address a docker build has — so the
-# bundle is built BEFORE this image by .config/qits/ci-post-receive.yml, on qits-net where that
+# bundle is built BEFORE this image by the pipeline step (.config/qits/ci-event-release.yml for the
+# release, ci-event-release-request.yml for the fold), on qits-net where that
 # registry answers. Excluding dist/ would fail the build at the `test -f` guard on the mvnw line.
 # Every SPA-serving service in the platform carries this same departure, for the same reason.
 **/node_modules
