@@ -90,7 +90,7 @@ class ForwardAuthTest {
   void theAdminBoundaryRejectsAnotherRole() {
     given()
         .header("X-Qits-User", "alice")
-        .header("X-Qits-Roles", "qits-platform:admin")
+        .header("X-Qits-Roles", "qits:admin")
         .when()
         .get("/events/api/events")
         .then()
