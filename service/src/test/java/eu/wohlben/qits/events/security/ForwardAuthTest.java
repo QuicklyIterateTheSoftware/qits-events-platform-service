@@ -88,9 +88,14 @@ class ForwardAuthTest {
 
   @Test
   void theAdminBoundaryRejectsAnotherRole() {
+    // `qits-platform:admin` stood here until the two admin roles were collapsed into `qits:admin`
+    // on 2026-09-06. It was the natural "different role" precisely because it LOOKED like an admin
+    // one and was not this boundary's; with it retired, the case needs a role the platform grants
+    // to nobody. `qits:system` will not do — the listing admits it beside `qits:admin` — so the
+    // negative case has to name a role that is outside both, or it stops testing a boundary at all.
     given()
         .header("X-Qits-User", "alice")
-        .header("X-Qits-Roles", "qits:admin")
+        .header("X-Qits-Roles", "qits:reader")
         .when()
         .get("/events/api/events")
         .then()
