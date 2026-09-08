@@ -92,6 +92,7 @@ This service has a **host of its own** — `events.<env>.<domain>` — and serve
 | `/` | the Angular SPA, built from `service/src/main/webui` by Quinoa and served by this process (`quarkus.quinoa.ui-root-path=/`); unmatched paths fall back to `index.html`, so the client's own router gets its deep links — including the project-scoped ones, `/qits/events/<id>` — except under the prefix below |
 | `/events/api/events` | the REST surface (`quarkus.rest.path=/events/api`) |
 | `/events/stream` | the event stream socket — a `@WebSocket` literal, which follows `quarkus.rest.path` for nothing and carries the segment itself |
+| `/events/api/stream` | the same fan-out as **Server-Sent Events**, for a browser (`?names=A,B`) — an ordinary JAX-RS route, so it follows `quarkus.rest.path` and needed no configuration anywhere |
 | `/events/q/openapi`, `/events/q/swagger-ui` | the API document and its UI (`quarkus.http.non-application-root-path`) |
 | `/events/q/health/ready` | the readiness endpoint the deployer's health gate curls |
 
@@ -126,6 +127,7 @@ Two things make this an event *bus* rather than an event *log*:
 
     PUT /events/api/events/{id}    idempotent publish under the publisher's own UUID
     ws:  /events/stream            live push of every newly created event
+    GET /events/api/stream         the same push as SSE, for a browser
 
 The envelope is one shape in both directions:
 
@@ -172,6 +174,26 @@ fields reads the frame it always read. Live only, at-most-once: no replay, no of
 That is a deliberate omission rather than a gap — catch-up reads the event log itself, with
 `?order=asc` from the last row the consumer handled — and the envelope carries the id precisely so a
 consumer can tell a caught-up row from a live one it already has.
+
+**A browser gets the same push over SSE**, at `GET /events/api/stream?names=BuildSuccessful,BuildFailed`
+— `*` for everything, absent for nothing. It is a second *transport*, never a second stream: one
+subscription table, one `AFTER_SUCCESS` observer and one serialization of the envelope feed both,
+so whatever this route pushes, the socket pushed. Three differences and no fourth:
+
+- **the subscription is in the URL**, because `EventSource` is one-way and has no frame to send; a
+  reader that wants different signatures reconnects;
+- **each event carries the id in the SSE `id:` field** as well as inside the envelope, which is the
+  field the protocol reserves for it and which a browser hands back as `Last-Event-ID`;
+- **comment lines** — one at connect (which flushes the response head, so `onopen` fires on a quiet
+  signature) and one every 20 seconds (so an idle connection is not reaped by an intermediary).
+
+Its door is the socket's: `qits:admin` or `qits:system`, and a reader without one is **refused at
+connect** rather than handed an empty stream — an empty stream is indistinguishable from an idle
+estate, and a page that got one would look calm and be blind. The address is under `/events/api`
+rather than beside the socket's literal for a reason that is entirely about the trap below: a JAX-RS
+`@Path` follows `quarkus.rest.path`, so this route needed no `ignored-path-prefixes` entry and no
+edge change, while a plain `GET` with no upgrade header is the request most likely to be swallowed
+by the SPA if it ever fell outside the ignored prefix.
 
 ## Walking a chain
 

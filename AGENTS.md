@@ -67,10 +67,15 @@ its siblings use, so the file is recognisable across repos):
   MapStruct `@Mapper(componentModel = "jakarta")`; errors carry an HTTP status code so the web layer
   can map them without this module knowing what HTTP is.
 - `service/` — `api` (JAX-RS + the exception mapper), `security` (the header-reading mechanism),
-  `stream` (the event stream socket and the table of who is subscribed to what). `stream` sits here
-  rather than in `events/` for the same reason `api` does — it needs a web stack — and it is split
-  socket/registry the way qits-ci splits `CiDaemonSocket` from `CiDaemonRegistry`: the socket owns
-  the lifecycle and the framing, the registry owns the subscription table and the fan-out.
+  `stream` (the event stream's transports and the table of who is subscribed to what). `stream` sits
+  here rather than in `events/` for the same reason `api` does — it needs a web stack — and it is
+  split socket/registry the way qits-ci splits `CiDaemonSocket` from `CiDaemonRegistry`: the socket
+  owns the lifecycle and the framing, the registry owns the subscription table and the fan-out.
+  **`EventStreamResource` is a JAX-RS resource that lives in `stream` and not in `api`**, and that
+  is deliberate rather than a slip: it is the SSE *transport* of that same fan-out — a file beside
+  `EventStreamSocket`, sharing the `EventStreamSink` abstraction and the one subscription table with
+  it — while `api` is the event log's CRUD. Splitting the two transports across two packages would
+  put the one thing that must never drift in two places.
 - `webui/` — `WebUiRedirect`, and only that.
 
 `control/` is flat and stays flat.
@@ -105,6 +110,14 @@ facts about that key, all measured on sibling services:
   and the `/stream` entry landed in the same commit. Ignoring a prefix stops the SPA *reroute* and
   does not unregister the route — the upgrade still works, and `PackagedSurfaceIT` asserts both
   halves, because both are invisible to a `@QuarkusTest`.
+- **A JAX-RS `@Path`, by contrast, costs nothing here — and that decided one address.**
+  `EventStreamResource`, the event stream as Server-Sent Events, is `@Path("/stream")` on a JAX-RS
+  resource, so it is served at `/events/api/stream`: inside `quarkus.rest.path`, therefore inside
+  the ignored prefix already, and inside the edge's `routes: /events`. It landed with no change to
+  this key and none at the edge, which is why the SSE transport lives under `/api` rather than
+  beside the socket's literal. It is nonetheless the surface *most* exposed to the trap, because it
+  is answered by a plain `GET` with no upgrade header to tell it from a page request —
+  `PackagedSurfaceIT` probes it for exactly that reason.
 
 The segment itself is spelled in **four** places that move together: `quarkus.quinoa.ui-root-path`,
 `quarkus.rest.path`, `quarkus.http.non-application-root-path`, and the client's `baseHref` in
@@ -154,6 +167,8 @@ recorded before the platform knew tiers — with `?environment=` on the list rou
 
 `PUT /events/api/events/{id}` and `/events/stream` are the two surfaces that make this a bus rather
 than a log, and the wire contract for both is frozen in `eventsourcing-plan.md` in the superproject.
+(`GET /events/api/stream` is a third *address* and not a third surface: it is the same fan-out over
+SSE, for a browser, and nothing about the socket's protocol may change because it exists.)
 Three things about it are load-bearing here:
 
 - **`payload` is stored and compared verbatim.** It arrives as canonical JSON *inside a string*.
@@ -212,6 +227,17 @@ The fan-out never blocks and never throws upwards. It runs on the thread that co
 transaction, so `sendTextAndAwait` — which is `sendText(…).await().indefinitely()` under a friendlier
 name, the shape qits-ci banned by name — would let one dead subscriber hold a committed write's
 thread forever. One broken socket costs its own frame and nothing else.
+
+**There is ONE subscription table and it is transport-agnostic.** `EventStreamSubscriptions` keys a
+single `ConcurrentHashMap` by connection id and holds an `EventStreamSink` per entry — `id()`,
+`isOpen()`, `send(eventId, frame)` — of which there are two implementations: `WebSocketSink` over a
+websockets-next connection and `SseSink` over a Mutiny emitter. One `@Observes(during =
+AFTER_SUCCESS)`, one `matches()`, one `ObjectMapper.writeValueAsString` per event for every reader
+on every transport. That last one is the load-bearing part: the bytes a browser reads out of
+`data:` are the bytes a consumer's eventstream jar reads off the socket, and a second serialization
+would be a second place for the envelope to be wrong in. Adding a third transport means adding a
+sink, never a table. The `send` signature carries the event id beside the frame only because SSE has
+an `id:` field of its own to put it in; the socket ignores it, since its frame *is* the envelope.
 
 ## Reading the log
 
@@ -357,7 +383,11 @@ The three move together — a new platform jar needs none of them again.
   reviewable instead of something a caller meets at runtime. Two things it does not cover: the test
   classpath is indexed too, so a `@Path` resource under `src/test` lands in the document unless it
   is `@Operation(hidden = true)` (`IdentityEchoResource` and `LogProbeResource` both carry it), and
-  `/events/stream` is a `@WebSocket`, which OpenAPI describes in no form at all.
+  `/events/stream` is a `@WebSocket`, which OpenAPI describes in no form at all. Its SSE twin
+  `GET /events/api/stream` **is** in the document, being ordinary JAX-RS — with an explicit
+  `@APIResponse` declaring a `text/event-stream` string body, because a derived one publishes
+  `OutboundSseEvent` and `MediaType` as component schemas: the server's own framing objects, which
+  no caller ever sees and which say nothing about the stream.
 - **`mvn verify` passing does not mean the app starts.** Augmentation runs per `@QuarkusTest`
   regardless of packaging, so a missing `quarkus-maven-plugin` goal is invisible to the suite — it
   happened in qits-projects, an `<executions>` block under a `<build>` whose `<testResources>` came
@@ -516,6 +546,11 @@ holding a socket has to do).
   - **Fan-out across two instances**, because there is no such thing: subscriptions are in-memory and
     single-process by design, and a second instance would need a real broker. `DisjointInterestsIT`
     is the story that would grow when that arrives.
+  - **The SSE transport**, which no story tells. Not because it is unreachable — `SseReader` in the
+    test tree would tap it the way `FakeSubscriber` taps the socket — but because no story has a
+    reason to yet: the fan-out it exercises is the socket's, already told, and a browser reader is
+    not an actor any of the six categories has. `DisjointInterestsIT` is where it would land when
+    one does.
   - **The client.** Quinoa is off in this run and the qits-events-platform-frontend submodule is
     empty in a step container, so nothing here asserts anything about `/events/`. That is
     `PackagedSurfaceIT`'s job.

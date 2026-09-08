@@ -289,6 +289,37 @@ paths:
       security:
       - SecurityScheme:
         - qits:admin
+  /events/api/stream:
+    get:
+      summary: Live event stream (Server-Sent Events)
+      description: "Pushes each newly created event whose name is named by ?names=\
+        \ (comma-separated; '*' means everything; absent means nothing) as an SSE\
+        \ event whose id: field is the event id and whose data is the EventCreated\
+        \ envelope. Live only: no replay, no offset, no catch-up."
+      parameters:
+      - name: names
+        in: query
+        schema:
+          type: string
+      responses:
+        "200":
+          description: "An open SSE stream. Each event carries the event id in its\
+            \ id: field and the EventCreated envelope's JSON in its data: field; comment\
+            \ lines mark the open and keep the connection alive. The body never ends."
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          description: Not Authorized
+        "403":
+          description: Not Allowed
+      tags:
+      - Event Stream Resource
+      security:
+      - SecurityScheme:
+        - qits:admin
+        - qits:system
 info:
   title: qits-events API
-  version: 2026.824.215959
+  version: 2026.907.224525

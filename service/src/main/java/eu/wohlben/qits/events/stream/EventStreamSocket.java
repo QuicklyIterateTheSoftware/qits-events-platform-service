@@ -15,6 +15,13 @@ import jakarta.inject.Inject;
  * table of who wants what and the fan-out — which is the split {@code CiDaemonSocket} /
  * {@code CiDaemonRegistry} carries in qits-ci, kept deliberately.
  *
+ * <p><b>This is one of two transports over that one table, and it is the machine's.</b> {@link
+ * EventStreamResource} serves the same fan-out as Server-Sent Events at {@code /events/api/stream}
+ * for a browser, which cannot open a websocket carrying its session as easily as it can open an
+ * {@code EventSource}. Nothing about the frame protocol below is shared with it beyond the
+ * signature vocabulary and the envelope — and nothing about it may change because that route
+ * exists: every consumer on the platform dials here.
+ *
  * <p><b>The path literal carries {@code /events} itself.</b> A {@code @WebSocket} path registers
  * straight onto the router and does <em>not</em> follow {@code quarkus.rest.path}, so the segment
  * every route of this service must serve is spelled here. {@code stream} is a second-level segment
@@ -53,16 +60,16 @@ public class EventStreamSocket {
 
   @OnOpen
   public void onOpen(WebSocketConnection connection) {
-    subscriptions.opened(connection);
+    subscriptions.opened(new WebSocketSink(connection));
   }
 
   @OnTextMessage
   public void onMessage(String message, WebSocketConnection connection) {
-    subscriptions.subscribe(connection, message);
+    subscriptions.subscribe(connection.id(), message);
   }
 
   @OnClose
   public void onClose(WebSocketConnection connection) {
-    subscriptions.closed(connection);
+    subscriptions.closed(connection.id());
   }
 }

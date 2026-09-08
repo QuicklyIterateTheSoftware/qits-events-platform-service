@@ -26,6 +26,13 @@ import org.junit.jupiter.api.Test;
  *
  * <p>{@code /events/stream} appears here in no form: a {@code @WebSocket} is not a JAX-RS route, so
  * OpenAPI describes none of it. The document is the HTTP surface, not the whole wire surface.
+ *
+ * <p>Its SSE twin <b>does</b> appear, and the asymmetry is the point rather than an inconsistency:
+ * {@code GET /events/api/stream} is an ordinary JAX-RS route producing {@code text/event-stream},
+ * so the document can name the path, the {@code ?names=} parameter and the media type — and cannot
+ * say anything about the frames, because OpenAPI has no vocabulary for a stream's elements. A reader
+ * of the document learns the door exists and has to read {@code EventStreamResource} for the
+ * protocol.
  */
 @QuarkusTest
 public class OpenApiSchemaExportTest {

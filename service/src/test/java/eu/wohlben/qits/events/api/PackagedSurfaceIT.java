@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import eu.wohlben.qits.events.stream.FakeSubscriber;
+import eu.wohlben.qits.events.stream.SseReader;
 import eu.wohlben.qits.events.testdb.EmbeddedPg;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusIntegrationTest;
@@ -56,6 +57,11 @@ import org.junit.jupiter.api.Test;
  *       and the upgrade is the "did the endpoint survive augmentation and the native image?"
  *       question. qits-ci learned the first by measuring it: before the prefix was ignored, a plain
  *       GET on its daemon socket answered 200 {@code index.html} from a green build.
+ *   <li>{@code /events/api/stream}, the SSE transport of the same fan-out → never the client. It
+ *       sits inside {@code quarkus.rest.path} and therefore inside the ignored prefix already, so
+ *       nothing had to move for it — but it is a plain {@code GET} with no upgrade to distinguish
+ *       it from a page request, which makes it the most exposed surface here to the SPA catch-all
+ *       and the reason the probe is asserted rather than reasoned about.
  * </ul>
  *
  * <p>ITs are skipped by default ({@code skipITs} in the root pom) because they need a `package`, and
@@ -115,6 +121,15 @@ public class PackagedSurfaceIT {
    */
   @TestHTTPResource("/events/stream")
   URI stream;
+
+  /**
+   * The SSE stream's address, which is <em>derived</em> rather than literal: {@code
+   * quarkus.rest.path} plus the resource's own {@code @Path("/stream")}. Spelled here whole for the
+   * same reason the socket's is — this is the address a browser opens, and either half moving is a
+   * regression no {@code @QuarkusTest} can see.
+   */
+  @TestHTTPResource("/events/api/stream")
+  URI sseStream;
 
   @Test
   public void theClientIsServedAtTheRootWithItsOwnBaseHref() {
@@ -335,6 +350,50 @@ public class PackagedSurfaceIT {
     String mistyped =
         given().when().get("/events/stream/nope").then().statusCode(404).extract().asString();
     assertFalse(mistyped.contains(BASE_HREF));
+  }
+
+  @Test
+  public void theSseStreamIsNeverAnsweredWithTheClient() throws Exception {
+    // The standing Quinoa trap, and this route is MORE exposed to it than the socket was, not less:
+    // /events/api/stream is answered by a plain GET, which is exactly the request that fell through
+    // to index.html on qits-ci's daemon path. The socket at least had an Upgrade header to make it
+    // recognisably not a page request; this has nothing.
+    //
+    // The claim is the same one every machine path here makes — "not the CLIENT" rather than "never
+    // HTML" — and it holds whichever way the door goes: a refusal is a short body, an opened stream
+    // is text/event-stream, and neither is index.html. What would break it is the SPA's catch-all
+    // answering 200 with a page, which a browser's EventSource would then parse as a broken stream
+    // and retry forever.
+    //
+    // Read through SseReader rather than RestAssured on purpose: if the door is open this response
+    // NEVER ENDS, and a blocking client would hang the suite rather than fail it.
+    try (SseReader reader = SseReader.open(sseStream)) {
+      String head = reader.contentType() + "\n" + firstLines(reader);
+      assertFalse(
+          head.contains(BASE_HREF),
+          "the SSE stream path must not be answered with the client; got: " + head);
+      assertFalse(
+          reader.contentType().startsWith("text/html"),
+          "the SSE stream path must not answer as a page; got: " + reader.contentType());
+    }
+
+    // And a mistyped path beneath it is an honest 404 rather than a deep link into the client.
+    String mistyped =
+        given().when().get("/events/api/stream/nope").then().statusCode(404).extract().asString();
+    assertFalse(mistyped.contains(BASE_HREF));
+  }
+
+  /** Whatever the process said first, bounded so a stream that never ends cannot hang this. */
+  private static String firstLines(SseReader reader) throws InterruptedException {
+    StringBuilder head = new StringBuilder();
+    for (int i = 0; i < 8; i++) {
+      String line = reader.nextLine(Duration.ofSeconds(2));
+      if (line == null) {
+        break;
+      }
+      head.append(line).append('\n');
+    }
+    return head.toString();
   }
 
   @Test
