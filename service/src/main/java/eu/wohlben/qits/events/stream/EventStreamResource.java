@@ -32,12 +32,12 @@ import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
  * <h2>Why a second transport at all</h2>
  *
  * <p>Because the browser cannot cheaply have the first one. The websocket at {@code /events/stream}
- * is dialled by every sibling service's eventstream jar with a machine bearer; a page in the shell
- * has a <em>session cookie</em>, and {@code EventSource} — unlike the browser's {@code WebSocket},
- * which cannot carry custom headers and does not follow the same auth story — is a plain
+ * is dialled by every sibling service's eventstream jar with the forward-auth headers; a page in the
+ * shell has a <em>session cookie</em>, and {@code EventSource} — unlike the browser's {@code
+ * WebSocket}, which cannot carry custom headers and does not follow the same auth story — is a plain
  * credentialed {@code GET}. The edge's forward-auth turns exactly that cookie into
- * {@code X-Qits-User} / {@code X-Qits-Roles}, which is the only thing this service ever reads an
- * identity from, so a browser session reaches this route with nothing new anywhere.
+ * {@code X-Qits-User} / {@code X-Qits-Roles}, so a browser session reaches this route with nothing
+ * new anywhere. (A person's command-line tool reaches it with a bearer token instead.)
  *
  * <h2>The subscription is in the URL, because it has nowhere else to be</h2>
  *

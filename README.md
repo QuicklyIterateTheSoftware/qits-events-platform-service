@@ -355,7 +355,14 @@ same refuse-to-boot stance the siblings take.
 
 ## Authentication
 
-There is none here, and that is the design. Authentication terminates at the edge; this service
-reads the `X-Qits-User` header the edge injects (`events/security/ForwardAuthMechanism`) and
-authenticates nothing. A missing header is *anonymous*, and anonymous is not a denial — reaching
-this service at all already implies you are inside the trusted network. See `AGENTS.md`.
+Two ways in, and `@RolesAllowed` decides for both:
+
+- **Forward-auth headers.** The edge turns a browser session into `X-Qits-User` /
+  `X-Qits-Roles`. In-network callers on `qits-net` send the same two headers themselves, with no
+  token. qits-auth-core's `ForwardAuthMechanism` reads them.
+- **A person's bearer token.** A person's command-line tool calls through the edge with that
+  person's token. The edge strips forward-auth headers from such a request, so `quarkus-oidc`
+  validates the token instead, and its `groups` claim becomes the roles.
+
+A request with neither is anonymous, and every protected route refuses it with 401. See
+`AGENTS.md`.

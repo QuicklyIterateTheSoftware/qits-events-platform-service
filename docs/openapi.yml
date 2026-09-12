@@ -103,6 +103,11 @@ components:
       properties:
         event:
           $ref: "#/components/schemas/EventDto"
+  securitySchemes:
+    SecurityScheme:
+      type: openIdConnect
+      openIdConnectUrl: http://qits-platform-idp:8080/idp/.well-known/openid-configuration
+      description: Authentication
 paths:
   /events/api/events:
     get:
@@ -322,4 +327,4 @@ paths:
         - qits:system
 info:
   title: qits-events API
-  version: 2026.907.224525
+  version: 2026.911.201929

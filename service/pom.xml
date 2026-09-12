@@ -86,12 +86,27 @@
             <artifactId>quarkus-quinoa</artifactId>
         </dependency>
         <dependency>
-            <!-- SecurityIdentity plus the HttpAuthenticationMechanism SPI, for the single thing this
-                 service does about auth: read qits-gateway's X-Qits-User header into an identity
-                 (see security/ForwardAuthMechanism). NOT an auth variant and NOT an authorization
-                 policy — authentication terminates at the gateway. -->
+            <!-- SecurityIdentity plus the HttpAuthenticationMechanism SPI, for the header half of
+                 auth: read X-Qits-User / X-Qits-Roles into an identity (ForwardAuthMechanism). A
+                 browser session gets them from the edge; in-network callers send them with no
+                 token. NOT an auth variant and NOT an authorization policy. quarkus-oidc below is
+                 the token half. -->
             <groupId>${project.groupId}</groupId>
             <artifactId>qits-auth-core</artifactId>
+        </dependency>
+        <dependency>
+            <!-- Validates a person's bearer token. A person's command-line tool reaches this
+                 service through the edge with a token from qits-platform-idp, and the edge strips
+                 the X-Qits-* headers from any request that carries one, so without this the request
+                 is anonymous. Bearer only: no login flow, no session. The token's `groups` claim
+                 becomes the roles, so the same @RolesAllowed boundaries decide. The keys are in
+                 application.properties.
+
+                 It also brings quarkus-smallrye-jwt-build (through quarkus-oidc-common), which the
+                 tests sign their tokens with. Do not declare that one again at test scope: a direct
+                 test-scope entry would take it off the runtime classpath. -->
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-oidc</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>

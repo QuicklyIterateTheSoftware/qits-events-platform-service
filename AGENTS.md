@@ -127,25 +127,44 @@ JavaScript from the wrong place, and no server-side test can see it.
 
 ## Authentication
 
-Authentication happens at `qits-gateway`. This service resolves a principal from a trusted header
-(`X-Qits-User`, read by `events/security/ForwardAuthMechanism`) and authenticates nothing.
+Two ways in. Both end in one `SecurityIdentity`, and Jakarta `@RolesAllowed` decides for both:
+
+- **Forward-auth headers** — `X-Qits-User` / `X-Qits-Roles`, read by qits-auth-core's
+  `ForwardAuthMechanism`. A browser session gets them from the edge. An in-network caller on
+  `qits-net` (every sibling's eventstream jar, CI) sends them itself, with no token.
+- **A person's bearer token** — a person's command-line tool (`qits`, idp client `qits-cli`) calls
+  through the edge with that person's token from qits-platform-idp. The edge strips every
+  `X-Qits-*` header from a request that carries a Bearer or Basic credential and injects none, so
+  headers cannot carry that person. `quarkus-oidc` validates the token (signature, issuer, and an
+  `aud` that holds `qits-events` or `qits-platform`), and its `groups` claim becomes the roles. The
+  roles are the permission system; nothing else is checked.
+
+A request with no `Authorization` header never reaches the token check, so header traffic is
+exactly what it was. A request with a token is decided by the token: OIDC's mechanism runs first
+(priority 1001, forward-auth 1000), so a token that does not validate is 401 even beside valid
+headers.
+
+The OIDC tenant is **on by default** and needs no deploy config: it requires nothing and holds no
+secret. It is not behind `qits.auth.machine.required`, which the deployer does not set for this
+service. `%dev` and `%test` turn it off, because neither has an idp.
+
+**Only a bearer ever reaches the idp** (`quarkus.oidc.jwks.resolve-early=false`). Boot makes no
+call; the key is fetched by the token's `kid` when a bearer needs it, and cached. With the default,
+a missing idp left the tenant "not ready", and every 401 challenge retried it, resolving the idp's
+host name on the event loop (a 2.7 s blocked thread, measured in the packaged ITs). `BearerJwksTest`
+pins the shipped key path against `JwksStub`.
 
 **`identity.isAnonymous()` is not a security state** — it means "no name to record". A check of the
 form `if (identity.isAnonymous()) deny` would look like a security control and be worth nothing,
 because reaching this service at all already implies you are inside the trusted network.
 
-There is no auth variant to select in this service. The shared `qits-auth-core` resolves both
-`X-Qits-User` and `X-Qits-Roles`; human-facing REST boundaries use Jakarta
-`@RolesAllowed("qits:admin")`. Machine-facing boundaries require an authenticated identity and
-retain their narrower `MachineAuth` audience/scope checks.
-is the entire reason a header can be trusted as an identity here.
-
 `ForwardAuthTest` exercises the real header through the real mechanism rather than
-`@TestSecurity`, on purpose. The header **is** the contract — nothing else ever produces a principal
-in a deployed service — so an annotation that fabricates an identity proves a path the deployment
-never takes. That is exactly how the bug ran unseen in qits-projects: it shipped a
-`SecurityIdentity` with no mechanism behind it, every recorded principal was null, and the
-annotation went on passing the whole time.
+`@TestSecurity`, on purpose. The header **is** the contract, so an annotation that fabricates an
+identity proves a path the deployment never takes. That is exactly how the bug ran unseen in
+qits-projects: it shipped a `SecurityIdentity` with no mechanism behind it, every recorded principal
+was null, and the annotation went on passing the whole time. `BearerAuthTest` does the same for
+tokens: real RS256 tokens signed with a test key, checked by the real extension
+(`BearerAuthProfile` gives it the public key in place of the JWKS fetch).
 
 Do not lift `events/security` into a shared `qits-auth` lib. Every repo builds from a clone of
 itself alone, so ~115 lines duplicated per service is cheaper than a jar that has to travel to all of
