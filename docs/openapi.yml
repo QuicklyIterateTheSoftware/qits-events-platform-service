@@ -168,6 +168,7 @@ paths:
       - SecurityScheme:
         - qits:admin
         - qits:system
+        - qits:agent
     post:
       requestBody:
         content:
@@ -213,6 +214,7 @@ paths:
       security:
       - SecurityScheme:
         - qits:admin
+        - qits:agent
   /events/api/events/{id}:
     put:
       parameters:
@@ -270,6 +272,7 @@ paths:
       security:
       - SecurityScheme:
         - qits:admin
+        - qits:agent
     delete:
       parameters:
       - name: id
@@ -325,6 +328,7 @@ paths:
       - SecurityScheme:
         - qits:admin
         - qits:system
+        - qits:agent
 info:
   title: qits-events API
-  version: 2026.911.201929
+  version: 2026.912.150452

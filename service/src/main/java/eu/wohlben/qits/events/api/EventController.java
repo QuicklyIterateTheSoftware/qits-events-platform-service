@@ -115,7 +115,7 @@ public class EventController {
    * own depth and remember the ids it has seen</b>, because nothing here prevents a cycle.
   */
   @GET
-  @jakarta.annotation.security.RolesAllowed({"qits:admin", "qits:system"})
+  @jakarta.annotation.security.RolesAllowed({"qits:admin", "qits:system", "qits:agent"})
   public ListEventsRequest.Response list(
       @QueryParam("parentId") String parentId,
       @QueryParam("name") String name,
@@ -154,7 +154,7 @@ public class EventController {
    */
   @GET
   @Path("/names")
-  @jakarta.annotation.security.RolesAllowed("qits:admin")
+  @jakarta.annotation.security.RolesAllowed({"qits:admin", "qits:agent"})
   public ListEventNamesRequest.Response names() {
     return new ListEventNamesRequest.Response(eventService.names());
   }
@@ -169,7 +169,7 @@ public class EventController {
 
   @GET
   @Path("/{id}")
-  @jakarta.annotation.security.RolesAllowed("qits:admin")
+  @jakarta.annotation.security.RolesAllowed({"qits:admin", "qits:agent"})
   public GetEventRequest.Response get(@PathParam("id") String id) {
     return new GetEventRequest.Response(eventMapper.toDto(eventService.get(id)));
   }

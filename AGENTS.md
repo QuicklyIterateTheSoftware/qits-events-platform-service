@@ -539,7 +539,8 @@ holding a socket has to do).
   the handshake rather than connected and ignored, which is why `FakeSubscriber.dial` has a headers
   overload and why the unauthenticated dial *throwing* is the assertable form of it), and the read
   asymmetry: `GET /events/api/events` takes either role because a catch-up consumer is a machine
-  reading the log, while `/names` and `GET /{id}` take `qits:admin` alone.
+  reading the log, while `/names` and `GET /{id}` take `qits:admin` alone. (Every read, the two
+  streams included, also takes `qits:agent`, a commissioned agent's role; no write does.)
 - **A consequence worth knowing before you run the others.** By reading rather than by measurement:
   `PackagedSurfaceIT` drives `/events/api/*` and dials `/events/stream` with **no** `X-Qits-User`,
   and it has not been touched since the roles landed (`feat: protect event APIs and streams`,

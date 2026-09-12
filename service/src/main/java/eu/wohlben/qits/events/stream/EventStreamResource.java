@@ -109,8 +109,10 @@ import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
  *
  * <h2>The door</h2>
  *
- * <p>{@code @RolesAllowed({"qits:admin", "qits:system"})} — the socket's roles exactly, and the same
- * pair the browser chrome's existing {@code /ci/api/runs/active} read already needs.
+ * <p>{@code @RolesAllowed({"qits:admin", "qits:system", "qits:agent"})} — the socket's roles
+ * exactly. The first two are the pair the browser chrome's existing {@code /ci/api/runs/active} read
+ * already needs; {@code qits:agent} is a commissioned agent, which may read what it read before it
+ * had a role of its own.
  *
  * <p><b>A reader without them is refused at connect (403) rather than handed an empty stream.</b>
  * That was a decision and not the default falling out: an empty stream is byte-for-byte
@@ -171,7 +173,7 @@ public class EventStreamResource {
    */
   @GET
   @Produces(MediaType.SERVER_SENT_EVENTS)
-  @RolesAllowed({"qits:admin", "qits:system"})
+  @RolesAllowed({"qits:admin", "qits:system", "qits:agent"})
   @Operation(
       summary = "Live event stream (Server-Sent Events)",
       description =
