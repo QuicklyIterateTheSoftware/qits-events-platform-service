@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>It moves only {@code auth-server-url} (and turns the tenant on, with the dev user blanked). So
  * the key path under test is the one that ships: discovery off, {@code jwks-path=jwks}, the shipped
- * issuer and audiences, and keys fetched by {@code kid} when a token needs one.
+ * issuer and audience, and keys fetched by {@code kid} when a token needs one.
  */
 public class JwksStub implements QuarkusTestResourceLifecycleManager {
 

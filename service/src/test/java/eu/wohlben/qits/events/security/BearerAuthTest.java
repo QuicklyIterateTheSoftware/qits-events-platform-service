@@ -91,19 +91,6 @@ class BearerAuthTest {
                 .close());
   }
 
-  @Test
-  void aTokenForThisServicesOwnAudienceIsAcceptedToo() {
-    // Quarkus accepts a token when its `aud` holds any one of the configured values.
-    given()
-        .header(
-            "Authorization",
-            bearer(BearerTokens.tokenFor(BearerTokens.OWN_AUDIENCE, "qits:admin")))
-        .when()
-        .get(NAMES)
-        .then()
-        .statusCode(200);
-  }
-
   // --- tokens that do not get in ------------------------------------------------------------------
 
   @Test
@@ -124,9 +111,14 @@ class BearerAuthTest {
   }
 
   @Test
-  void aTokenForAnotherServiceIsUnauthorized() {
+  void aTokenForAnAudienceOutsideThePlatformIsUnauthorized() {
+    // Not a sibling service's token: every token this idp mints carries `qits-platform`, so a
+    // sibling's gets in and its roles decide from there. What the audience check refuses is a
+    // token addressed to something that is not this platform at all.
     given()
-        .header("Authorization", bearer(BearerTokens.tokenFor("qits-projects", "qits:admin")))
+        .header(
+            "Authorization",
+            bearer(BearerTokens.tokenFor(BearerTokens.OUTSIDE_AUDIENCE, "qits:admin")))
         .when()
         .get(NAMES)
         .then()

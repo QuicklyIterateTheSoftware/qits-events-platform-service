@@ -29,11 +29,11 @@ final class BearerTokens {
   /** What qits-platform-idp writes into {@code iss}, and what the shipped config expects. */
   static final String ISSUER = "http://qits-platform-idp:8080/idp";
 
-  /** The platform-wide audience a person's CLI token carries. */
+  /** The one platform-wide audience, which every token qits-platform-idp mints carries. */
   static final String PLATFORM_AUDIENCE = "qits-platform";
 
-  /** This service's own machine audience, which is also its wire name. */
-  static final String OWN_AUDIENCE = "qits-events";
+  /** An audience that is not this platform's at all, for the door that refuses one. */
+  static final String OUTSIDE_AUDIENCE = "some-other-platform";
 
   /** A user id, as the idp writes it into {@code sub}. */
   static final String SUBJECT = "0b6f4d2e-7a31-4c1e-9d55-3f2a8e6c9b10";

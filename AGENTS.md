@@ -136,8 +136,10 @@ Two ways in. Both end in one `SecurityIdentity`, and Jakarta `@RolesAllowed` dec
   through the edge with that person's token from qits-platform-idp. The edge strips every
   `X-Qits-*` header from a request that carries a Bearer or Basic credential and injects none, so
   headers cannot carry that person. `quarkus-oidc` validates the token (signature, issuer, and an
-  `aud` that holds `qits-events` or `qits-platform`), and its `groups` claim becomes the roles. The
-  roles are the permission system; nothing else is checked.
+  `aud` that holds `qits-platform`, the one platform-wide audience every token qits-platform-idp
+  mints carries), and its `groups` claim becomes the roles. The roles are the permission system;
+  nothing else is checked. The audience check says the token was minted for this platform and
+  nothing more — a sibling service's machine token passes it too, and its roles decide from there.
 
 A request with no `Authorization` header never reaches the token check, so header traffic is
 exactly what it was. A request with a token is decided by the token: OIDC's mechanism runs first
