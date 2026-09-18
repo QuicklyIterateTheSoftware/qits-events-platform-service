@@ -586,14 +586,17 @@ holding a socket has to do).
   Location, and the `PUT` beside it really does answer 201, so the two writes are different shapes
   and not one route wearing two verbs. And a **`DELETE` announces nothing**: only a *create*
   broadcasts, so a removal is invisible to every subscriber and never rewinds a watermark.
-- The second step of `.config/qits/ci-event-release-request.yml` publishes the reports as the docs
-  bundle `@userflows/qits-events` (the **storage id**, the same one `ci-event-release.yml` selects
-  on), version = the folded sha — once per release-request fold now, not per commit. It declares
-  `gating: false`, so a red verify shows red without holding the fold's build gate; it runs
+- The second step of the release-request phase — `.config/qits/release.yml` declares the
+  `java-service` archetype and overrides no slot — publishes the reports as the docs bundle
+  `@userflows/qits-events` (the **storage id**, the same one the release phase selects on), version =
+  the folded sha — once per release-request fold now, not per commit. It **gates**, like every step
+  of that pipeline: a red verify is a red verdict for the whole fold and holds it at the release
+  gate, and there is no per-step exemption to declare — qits-ci refuses one. It runs
   `-Dquarkus.quinoa=false`, and opts into ITs **by name** so the SPA-asserting `PackagedSurfaceIT`
-  and the OTLP-stub `PackagedLogBridgeIT` stay out of a run that is about neither. **Every new story
-  class goes into that list in the same commit**, or it never runs in the pipeline and nothing says
-  so.
+  and the OTLP-stub `PackagedLogBridgeIT` stay out of a run that is about neither. The list is
+  `.config/qits/userflow-stories`, one class name per line, which the archetype turns into
+  `-Dit.test`. **Every new story class goes into that file in the same commit**, or it never runs in
+  the pipeline and nothing says so.
 
 ## Application logs leave over OTLP
 
@@ -642,8 +645,8 @@ Four things there were measured rather than assumed, and each one would have bee
 
 ## The image and the pipeline
 
-`docker/Dockerfile` and `.config/qits/ci-event-release.yml` are two halves of one thing (the gating
-step of `ci-event-release-request.yml` is the same two halves, minus the push), and the seam
+`docker/Dockerfile` and `.config/qits/release.yml`'s release phase are two halves of one thing (the
+build step of the release-request phase is the same two halves, minus the push), and the seam
 between them is the only reason either is interesting: **the client cannot be built inside a docker
 build.** It depends on `@qits/ui-components`, which lives only on the platform's own npm registry,
 and a `RUN` step reaches the public internet but reaches that registry by no address at all. So the
