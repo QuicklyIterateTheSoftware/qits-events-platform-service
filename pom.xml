@@ -62,7 +62,7 @@
              is the far side of every interaction on the platform, so the stories' counterparties are
              a real HTTP client and a real websocket client in the test JVM, and a mock would be a
              stand-in for nothing. -->
-        <qits.userflows.version>2026.920.210236</qits.userflows.version>
+        <qits.userflows.version>2026.922.190204</qits.userflows.version>
         <qits.maven.repository.url>http://registry.dev.localhost:8080/artifacts/maven/maven</qits.maven.repository.url>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
