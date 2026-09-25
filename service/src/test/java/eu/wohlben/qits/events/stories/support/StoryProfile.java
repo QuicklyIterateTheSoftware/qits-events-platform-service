@@ -69,7 +69,7 @@ import java.util.Map;
  * <h2>One thing is OFF, and it is the only thing this process would otherwise dial</h2>
  *
  * <p><b>The OTLP exporter.</b> The shipped configuration points this service's SDK at {@code
- * http://qits-observability:8080}, a name that resolves on {@code qits-net} and nowhere else, so a
+ * http://dev-qits-observability:8080}, a name that resolves on {@code qits-net} and nowhere else, so a
  * launched artifact would spend the run retrying an export into the void and bury the story's own log
  * under the failures. An exporter also flushes on a schedule of its own, on its own thread, so its
  * batches would draw arrows into whichever story happened to be open — a {@code networkHash} that
