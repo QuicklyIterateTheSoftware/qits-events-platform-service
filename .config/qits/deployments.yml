@@ -7,16 +7,6 @@
 # carries the released VERSION. `deploy_branches` used to name a branch here, in
 # thirteen copies of one platform-wide answer, and a release pushed onto every entry it named.
 #
-# PLATFORM service: one bus serves every environment, so one instance exists rather than one per
-# tier. It deploys into the PLATFORM ENVIRONMENT and no other tier — which tier that is, is
-# `pd_environment.platform` in the deployer, set by the bootstrap's --platform-env.
-#
-# THIS WAS AN ENVIRONMENT SERVICE until 2026-08-17, one broker per tier. Scoping came from WHICH
-# broker instance a service dialled — there are no topics here, routing is the event signature plus
-# each consumer's own watermark — so a per-tier bus was also a per-tier wall: a platform service
-# could publish onto one tier's bus only. One bus removes the wall, and the wire alias loses its
-# tier prefix with it: `qits-events`, which is what the eventstream library already defaults to.
-
 # THE NAME THIS DEPLOYS AS, spelled because the repository is renamed and the application is not.
 # Every derivation the deployer makes hangs off this name — the wire alias peers dial, the container
 # it manages, the extras family, the database — so letting it follow the repository would
@@ -25,8 +15,6 @@
 # It is the SHORT name, and always has been: the repository was qits-platform-events while the
 # catalog row, the bus alias every consumer dials (qits.events.url) and the database were qits-events.
 application: qits-events
-
-deployment_target: platform
 
 routes: /events
 
